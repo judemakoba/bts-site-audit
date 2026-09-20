@@ -1,0 +1,9 @@
+{
+  "name": "Asset Capture",
+  "short_name": "AssetCapture",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1F4E79",
+  "theme_color": "#1F4E79",
+  "icons": []
+}

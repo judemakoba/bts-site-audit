@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+android/app/build/
+android/.gradle/
+ios/App/Pods/
+ios/App/build/
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Reports (generated)
+backend/reports/*.xlsx
+
+# Capacitor
+capacitor.config.ts  # keep this, it IS in the repo
+
+# Misc
+*.apk
+*.ipa

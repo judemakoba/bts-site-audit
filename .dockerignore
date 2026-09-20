@@ -1,0 +1,12 @@
+node_modules
+.git
+.env
+*.apk
+*.log
+dist
+android
+ios
+*.log
+.nyc_output
+coverage
+.vscode
