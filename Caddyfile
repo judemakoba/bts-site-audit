@@ -1,0 +1,63 @@
+# ============================================================
+# Caddyfile — BTS Audit API Reverse Proxy
+# Handles: HTTPS (Lets Encrypt), rate limiting, security headers
+# ============================================================
+
+# Match any incoming request
+:80 {
+    # Redirect all HTTP to HTTPS
+    respond "Redirecting to HTTPS" 301 {
+        Location https://{host}{uri}
+    }
+}
+
+:443 {
+    # -------------------------
+    # Rate Limiting (global)
+    # -------------------------
+    # 100 requests per minute per IP (strict enough for mobile app usage)
+    rate_limit {
+        zone static {
+            key {remote_ip}
+            rate 100/minute
+            burst 20
+        }
+    }
+
+    # -------------------------
+    # Security Headers
+    # -------------------------
+    header {
+        # Prevent clickjacking
+        X-Frame-Options "SAMEORIGIN"
+        # Prevent XSS attacks
+        X-Content-Type-Options "nosniff"
+        X-XSS-Protection "1; mode=block"
+        # Referrer policy
+        Referrer-Policy "strict-origin-when-cross-origin"
+        # Content Security Policy (restrict to same origin + needed APIs)
+        Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://*; font-src 'self'; object-src 'none'; frame-ancestors 'none'"
+        # Remove server banner
+        -Server
+        Server "BTS-Audit-Security"
+        # HSTS (force HTTPS for 1 year)
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        # Permissions Policy (disable risky browser features)
+        Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+        # Cache control (no caching for API responses)
+        Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
+        Pragma "no-cache"
+    }
+
+    # -------------------------
+    # Proxy to BTS API (internal only — not exposed directly)
+    # -------------------------
+    reverse_proxy bts-api:3000
+
+    # -------------------------
+    # Access Log (for monitoring/audit)
+    # -------------------------
+    log {
+        output file /data/access.log
+    }
+}

@@ -12,6 +12,8 @@
 require('dotenv').config();
 const express = require('express');
 const cors    = require('cors');
+const helmet  = require('helmet');
+const rateLimit = require('express-rate-limit');
 const path    = require('path');
 const fs      = require('fs');
 
@@ -20,8 +22,75 @@ const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'bts-audit-secret-change-in-production';
 const JWT_EXPIRY = process.env.JWT_EXPIRY || '7d';
 
-// ─── MIDDLEWARE ────────────────────────────────────────────────────────────────
-app.use(cors());
+// ─── SECURITY HEADERS (Helmet) ────────────────────────────────────────────────
+app.use(helmet({
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+}));
+
+// ─── RATE LIMITING ───────────────────────────────────────────────────────────
+// Global: 100 requests/min per IP (plenty for mobile app usage)
+const globalLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please slow down.' },
+});
+app.use('/api', globalLimiter);
+
+// Auth rate limit: 5 login attempts/min per IP (stops credential stuffing)
+const authLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts. Please wait 1 minute.' },
+});
+
+// ─── FAILED LOGIN LOCKOUT ─────────────────────────────────────────────────────
+// Track failed attempts: { ip: { count, lastAttempt } }
+const failedLogins = {};
+const LOCKOUT_THRESHOLD = 5;     // 5 failed attempts
+const LOCKOUT_DURATION  = 15 * 60 * 1000; // 15 minutes
+
+function isLockedOut(ip) {
+  const record = failedLogins[ip];
+  if (!record) return false;
+  if (Date.now() - record.lastAttempt > LOCKOUT_DURATION) {
+    delete failedLogins[ip];
+    return false;
+  }
+  return record.count >= LOCKOUT_THRESHOLD;
+}
+
+function recordFailedLogin(ip) {
+  if (!failedLogins[ip]) failedLogins[ip] = { count: 0, lastAttempt: 0 };
+  failedLogins[ip].count++;
+  failedLogins[ip].lastAttempt = Date.now();
+}
+
+function clearFailedLogin(ip) {
+  delete failedLogins[ip];
+}
+
+// ─── MIDDLEWARE ──────────────────────────────────────────────────────────────
+// CORS: restrict to mobile app origins (update ALLOWED_ORIGINS for your domain)
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '*').split(',').map(s => s.trim());
+// Trust Caddy proxy (reverse proxy adds x-forwarded-for, x-real-ip)
+app.set('trust proxy', 1);
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin || ALLOWED_ORIGINS.includes('*') || ALLOWED_ORIGINS.includes(origin)) {
+      cb(null, true);
+    } else {
+      cb(new Error('CORS: origin not allowed'));
+    }
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+}));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -186,12 +255,23 @@ app.get('/api/health', (req, res) => {
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', authLimiter, (req, res) => {
+  const clientIp = (req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
+  if (isLockedOut(clientIp)) {
+    return res.status(429).json({
+      error: 'Account temporarily locked due to too many failed login attempts. Please wait 15 minutes.',
+      retryAfter: Math.ceil(LOCKOUT_DURATION / 60000) + ' minutes',
+    });
+  }
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
   const user = db.users.find(u => u.email.toLowerCase() === email.toLowerCase());
   if (!user) return res.status(401).json({ error: 'Invalid credentials' });
-  if (!bcrypt.compareSync(password, user.password)) return res.status(401).json({ error: 'Invalid credentials' });
+  if (!bcrypt.compareSync(password, user.password)) {
+    recordFailedLogin(clientIp);
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
+  clearFailedLogin(clientIp);
   const token = signToken(user.id, user.role);
   res.json({
     token, user: {

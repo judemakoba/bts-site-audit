@@ -1,0 +1,64 @@
+# ============================================================
+# BTS Site Audit API — Docker Compose Stack
+# Security layers:
+#   - Caddy reverse proxy (HTTPS + rate limiting + security headers)
+#   - Express API (Helmet, express-rate-limit, input validation)
+#   - Persistent volumes (data + photos survive restarts)
+# ============================================================
+
+services:
+  # ----------------------------------------------------------
+  # Caddy — reverse proxy + HTTPS + security headers
+  # Handles TLS termination, rate limiting, and DDoS protection
+  # ----------------------------------------------------------
+  caddy:
+    image: caddy:2-alpine
+    container_name: bts-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"     # HTTP (redirects to HTTPS)
+      - "443:443"   # HTTPS (Lets Encrypt auto-cert)
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./data/caddy_config:/config
+      - ./data/caddy_data:/data
+    depends_on:
+      bts-api:
+        condition: service_healthy
+    networks:
+      - bts-net
+
+  # ----------------------------------------------------------
+  # BTS Audit API — Node.js Express server
+  # ----------------------------------------------------------
+  bts-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: bts-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      JWT_SECRET: "${JWT_SECRET:-bts-audit-change-me-in-production}"
+      JWT_EXPIRY: "${JWT_EXPIRY:-7d}"
+      # Tell the API what base URL Caddy is using
+      API_BASE_URL: "${API_BASE_URL:-https://localhost}"
+    volumes:
+      - ./data/uploads:/app/uploads
+      - ./data/db.json:/app/data/db.json
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - bts-net
+    # Security: drop all Linux capabilities, run as non-root
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  bts-net:
+    driver: bridge
