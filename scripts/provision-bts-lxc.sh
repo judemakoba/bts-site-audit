@@ -1,12 +1,11 @@
 #!/bin/bash
 # ============================================================
 # BTS Audit LXC 203 Provisioning Script
-# Run this ON the PVE host (root@pve / 192.168.1.68)
+# Run ON the PVE host: bash /tmp/provision-bts-lxc.sh
 # ============================================================
 set -e
 
 echo "=== BTS Audit LXC 203 — Provisioning ==="
-echo ""
 
 # ---- Config ------------------------------------------------
 LXC_ID=203
@@ -18,85 +17,45 @@ LXC_DISK_SIZE=20
 LXC_IP=192.168.1.203
 LXC_GW=192.168.1.1
 LXC_BRIDGE=vmbr0
+LXC_MASK=BC:24:11:66:35:FF
 STORAGE=local-lvm
+TEMPLATE="local:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst"
 # -----------------------------------------------------------
 
 # 1. Check if LXC already exists
-if pct list | grep -q "^${LXC_ID} "; then
-  echo "LXC ${LXC_ID} already exists. Checking status..."
+if pct list 2>/dev/null | grep -q "^${LXC_ID} "; then
+  echo "LXC ${LXC_ID} already exists."
   pct status ${LXC_ID}
-  echo "If you want to recreate, run: pct destroy ${LXC_ID} --purge"
+  echo "To destroy and recreate: pct destroy ${LXC_ID} --purge"
   exit 0
 fi
 
 echo "[1/6] Creating LXC ${LXC_ID} (${LXC_IP})..."
 
-# Download Debian 12 template if not present
-if [ ! -f /var/lib/vz/template/ubuntu/debian-12-standard.tar.gz ]; then
-  echo "Downloading Debian 12 template..."
-  mkdir -p /var/lib/vz/template/ubuntu
-  cd /var/lib/vz/template/ubuntu
-  wget -q https://ftp.debian.org/debian/dists/bookworm/main/installer-amd64/current/images/netboot/debian-installer/amd64/linux -O linux
-  wget -q https://ftp.debian.org/debian/dists/bookworm/main/installer-amd64/current/images/netboot/debian-installer/amd64/initrd.gz -O initrd.gz
-  # Use community template download
-  echo "Using community Debian 12 template..."
-  pveam download local debian-12-standard_amd64.tar.gz 2>/dev/null || true
-fi
-
-# Create LXC
-pct create ${LXC_ID} local:vztmpl/debian-12-standard_amd64.tar.gz \
+pct create ${LXC_ID} ${TEMPLATE} \
   --hostname ${LXC_HOSTNAME} \
   --memory ${LXC_MEMORY} \
   --cores ${LXC_CORES} \
   --swap ${LXC_SWAP} \
   --rootfs ${STORAGE}:${LXC_DISK_SIZE} \
-  --net0 name=eth0,bridge=${LXC_BRIDGE,gw=${LXC_GW},ip=${LXC_IP}/24,type=veth \
+  --net0 name=eth0,bridge=${LXC_BRIDGE},gw=${LXC_GW},ip=${LXC_IP}/24,hwaddr=${LXC_MASK},type=veth \
   --features nesting=1,fuse=1,keyctl=1 \
   --unprivileged 1 \
   --onboot 1 \
   --timezone Africa/Kampala \
-  --tags bts-audit,community-script \
-  2>&1 | head -20
+  --tags bts-audit:community-script
 
-# Alternative: create via startvm with config
-if ! pct list | grep -q "^${LXC_ID} "; then
-  echo "Trying alternative LXC creation method..."
-  # Create LXC config manually
-  cat > /etc/pve/lxc/${LXC_ID}.conf <<EOF
-arch: amd64
-cores: ${LXC_CORES}
-features: nesting=1,fuse=1,keyctl=1
-hostname: ${LXC_HOSTNAME}
-memory: ${LXC_MEMORY}
-net0: name=eth0,bridge=${LXC_BRIDGE},gw=${LXC_GW},hwaddr=BC:24:11:66:35:FF,ip=${LXC_IP}/24,type=veth
-onboot: 1
-ostype: debian
-rootfs: ${STORAGE}:vm-${LXC_ID}-disk-0,size=${LXC_DISK_SIZE}G
-swap: ${LXC_SWAP}
-tags: bts-audit;community-script
-timezone: Africa/Kampala
-unprivileged: 1
-lxc.cgroup2.devices.allow: c 10:200 rwm
-lxc.mount.entry: /dev/net/tun dev/net/tun none bind,create=file
-EOF
+echo "✅ LXC ${LXC_ID} created"
 
-  # Allocate disk
-  qm importdisk ${LXC_ID} none ${STORAGE} --format raw 2>/dev/null || \
-  pct alloc ${LXC_ID} ${STORAGE} vm-${LXC_ID}-disk-0 ${LXC_DISK_SIZE}G 2>/dev/null || \
-  echo "Disk allocation may need manual intervention"
+echo "[2/6] Starting LXC..."
+pct start ${LXC_ID}
+sleep 15
 
-  # Start LXC
-  pct start ${LXC_ID} 2>&1 || echo "LXC start may need manual intervention"
-fi
-
-echo "[2/6] Waiting for LXC ${LXC_ID} to boot..."
-sleep 10
-
-# Check if running
 if pct status ${LXC_ID} | grep -q "running"; then
   echo "✅ LXC ${LXC_ID} is running"
 else
-  echo "⚠️  LXC ${LXC_ID} may not be running. Check: pct status ${LXC_ID}"
+  echo "❌ LXC ${LXC_ID} failed to start. Run: pct status ${LXC_ID}"
+  exit 1
 fi
 
 echo "[3/6] Installing Docker inside LXC ${LXC_ID}..."
@@ -105,29 +64,28 @@ pct exec ${LXC_ID} -- bash -c "
   apt-get update -qq
   apt-get install -y -qq ca-certificates curl gnupg lsb-release > /dev/null 2>&1
 
-  # Add Docker GPG key
+  # Docker GPG key
   install -m 0755 -d /etc/apt/keyrings
   curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
   chmod a+r /etc/apt/keyrings/docker.gpg
 
-  # Add Docker repo
+  # Docker repo (bookworm = Debian 12)
   echo 'deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable' > /etc/apt/sources.list.d/docker.list
 
   apt-get update -qq
   apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin > /dev/null 2>&1
 
-  # Enable and start Docker
   systemctl enable docker
   systemctl start docker
 
-  echo '✅ Docker installed'
+  echo 'Docker installed:'
   docker --version
   docker compose version
 "
 
 echo "[4/6] Installing essential tools..."
 pct exec ${LXC_ID} -- bash -c "
-  apt-get install -y -qq git htop vim curl wget unzip 2>/dev/null
+  apt-get install -y -qq git htop vim curl wget unzip > /dev/null 2>&1
   echo '✅ Tools installed'
 "
 
@@ -146,25 +104,32 @@ pct exec ${LXC_ID} -- bash -c "
 echo "[6/6] Starting BTS Audit stack..."
 pct exec ${LXC_ID} -- bash -c "
   cd /root/bts-site-audit
-  docker compose -f docker-compose.yml up -d --build
+  mkdir -p data/caddy_config data/caddy_data data/uploads data
+
+  # Set JWT_SECRET
+  export JWT_SECRET=\$(cat /root/bts-site-audit/.env 2>/dev/null | grep JWT_SECRET | cut -d= -f2)
+  if [ -z \"\$JWT_SECRET\" ]; then
+    echo 'JWT_SECRET not set — generating one...'
+    export JWT_SECRET=\$(openssl rand -hex 32)
+    echo \"JWT_SECRET=\$JWT_SECRET\" > /root/bts-site-audit/.env
+  fi
+
+  docker compose up -d --build
   echo '✅ Stack started'
-  sleep 5
-  docker compose -f docker-compose.yml ps
-  docker compose -f docker-compose.yml logs --tail=20
+  sleep 10
+  docker compose ps
+  docker compose logs --tail=30
 "
 
 echo ""
 echo "=== Provisioning Complete ==="
-echo "LXC ${LXC_ID} (${LXC_IP}) — BTS Audit API"
-echo "Health check: https://${LXC_IP}/api/health"
+echo "LXC ${LXC_ID} running at: ${LXC_IP}"
 echo ""
-echo "Next: Set port forward on your router:"
-echo "  External port: 3001"
-echo "  Internal IP: ${LXC_IP}"
-echo "  Internal port: 443"
+echo "Next steps:"
+echo "  1. Set port forward on your router: ext:3001 → ${LXC_IP}:443 (TCP)"
+echo "  2. Access via: https://YOUR_PUBLIC_IP:3001/api/health"
 echo ""
-echo "To manage from PVE host:"
-echo "  pct enter ${LXC_ID}     — enter the LXC shell"
-echo "  pct stop ${LXC_ID}      — stop"
-echo "  pct start ${LXC_ID}     — start"
-echo "  docker compose -f /root/bts-site-audit/docker-compose.yml logs -f  — view logs"
+echo "To manage:"
+echo "  pct enter ${LXC_ID}              — shell into LXC"
+echo "  pct exec ${LXC_ID} -- docker compose -f /root/bts-site-audit/docker-compose.yml logs -f  — live logs"
+echo "  pct stop ${LXC_ID} / pct start ${LXC_ID}   — stop/start"
