@@ -149,13 +149,44 @@ export interface PhotoRecord {
 }
 
 export interface AppState {
+  // Auth
+  token: string | null;
+  currentUser: AuthUser | null;
+  // Site
+  selectedSite: SiteAssignment | null;
+  assignedSites: SiteAssignment[];
+  // Data
   siteInfo: SiteInfo | null;
   groundEquipment: GroundEquipment[];
   dcdbRecords: DCDBRecord[];
   towerEquipment: TowerEquipment[];
   photos: PhotoRecord[];
-  currentTab: 'site' | 'ground' | 'dcdb' | 'tower' | 'photos' | 'sync';
+  currentTab: 'login' | 'sites' | 'site' | 'ground' | 'dcdb' | 'tower' | 'photos' | 'sync';
   isOnline: boolean;
+}
+
+// ─── Auth Types ────────────────────────────────────────────────────────────────
+
+export interface AuthUser {
+  id: string;
+  name: string;
+  email: string;
+  role: 'admin' | 'engineer';
+}
+
+export interface SiteAssignment {
+  id: string;
+  siteId: string;
+  siteName: string;
+  atcNo: string;
+  latitude: string;
+  longitude: string;
+  status: 'active' | 'inactive';
+}
+
+export interface LoginResponse {
+  token: string;
+  user: AuthUser;
 }
 
 export const EQUIPMENT_TYPES = [

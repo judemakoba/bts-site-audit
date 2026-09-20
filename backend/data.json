@@ -1,0 +1,17 @@
+{
+  "users": [
+    {
+      "id": "admin-001",
+      "name": "Admin",
+      "email": "admin@bts-audit.com",
+      "password": "$2b$10$p8sAbqqn5.vpYCdXtn6GX.FHYvQ2zHO8lvYC.WH/MkQwAJITo9HnG",
+      "role": "admin",
+      "createdAt": "2026-09-20T16:21:00.662Z"
+    }
+  ],
+  "sites": [],
+  "groundEquipment": [],
+  "dcdbRecords": [],
+  "towerEquipment": [],
+  "photos": []
+}

@@ -1,10 +1,11 @@
 # BTS Site Audit System
 
-Field data capture system for telecom BTS (Base Transceiver Station) audits:
+**Multi-user, multi-site** field data capture system for telecom BTS audits:
 - **Excel template** — 3-sheet field capture form (Ground Equipment, DCDB, Tower)
-- **Mobile app (Android/iOS)** — Capacitor app with camera, offline storage, and sync
-- **Backend API** — Express server with web dashboard and Excel report generation
-- **Photos** — Organised into 3 folders matching the audit categories
+- **Mobile app (Android/iOS)** — Capacitor app with camera, offline storage, JWT auth, and sync
+- **Backend API** — Express server with JWT auth, per-user data isolation, and Excel report generation
+- **Photos** — Organised into `uploads/{siteId}/{category}/` (nested per site)
+- **Web Dashboard** — Admin: site management, engineer registration, all-site view
 
 ## Project Structure
 
@@ -74,21 +75,28 @@ Update `mobile/src/app.ts` → `API_BASE`:
 
 ## Backend API
 
+All endpoints except `/api/health` and `/api/auth/login` require `Authorization: Bearer <token>`.
+
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/health` | GET | Health check |
-| `/api/audit/sync` | POST | Sync all 3 data sections at once (mobile primary) |
-| `/api/site` | GET/POST | Site info |
+| `/api/health` | GET | Health check (no auth) |
+| `/api/auth/login` | POST | Login — returns JWT token |
+| `/api/auth/register` | POST | Admin: create engineer account |
+| `/api/auth/me` | GET | Get current user info |
+| `/api/sites` | GET | List sites (admin: all; engineer: assigned) |
+| `/api/sites` | POST | Admin: create site |
+| `/api/sites/:id` | PUT | Admin: update site / assign engineers |
+| `/api/sites/:id` | DELETE | Admin: delete site (if no data) |
+| `/api/users/engineers` | GET | Admin: list all engineers |
+| `/api/audit/sync` | POST | Sync all 3 sections for a site (mobile primary) |
+| `/api/audit/site/:siteId` | GET | Get audit data for a site |
 | `/api/ground` | GET/POST | Ground equipment records |
-| `/api/ground/:id` | PUT/DELETE | Update/delete ground record |
 | `/api/dcdb` | GET/POST | DCDB records |
-| `/api/dcdb/:id` | PUT/DELETE | Update/delete DCDB record |
 | `/api/tower` | GET/POST | Tower equipment entries |
-| `/api/tower/:id` | PUT/DELETE | Update/delete tower entry |
-| `/api/photos` | GET/POST | List/upload photos (`category` param: ground\|dcdb\|tower\|general) |
+| `/api/photos` | GET/POST | List/upload photos |
 | `/api/photos/:id` | DELETE | Delete photo |
-| `/api/report/excel` | GET | Download 5-sheet Excel audit report with photo thumbnails |
-| `/api/report/generate` | POST | Same as above, returns JSON with download URL |
+| `/api/report/excel?siteId=X` | GET | Download 5-sheet Excel report for a site |
+| `/` | GET | Web dashboard |
 
 ## Excel Report Sheets
 
@@ -102,14 +110,18 @@ Update `mobile/src/app.ts` → `API_BASE`:
 
 ## Photo Folder Routing
 
-Photos uploaded via the mobile app are automatically sorted into:
+Photos uploaded via the mobile app are automatically sorted into `uploads/{siteId}/{category}/`:
 
 ```
 backend/uploads/
-├── ground/      ← Site-level / ground equipment photos
-├── dcdb/         ← DCDB / power distribution photos
-├── tower/        ← Tower-mounted equipment photos
-└── general/      ← General site photos
+├── UG0047/       ← Per-site folder (siteId as folder name)
+│   ├── ground/
+│   ├── dcdb/
+│   ├── tower/
+│   └── general/
+├── KA1108/
+│   ├── ground/
+│   └── ...
 ```
 
 ## Koyeb Deployment
