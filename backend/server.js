@@ -309,6 +309,22 @@ app.get('/api/auth/me', authMiddleware, (req, res) => {
   res.json({ id: user.id, name: user.name, email: user.email, role: user.role });
 });
 
+// Admin: list all users (for engineer management)
+app.get('/api/users', authMiddleware, adminOnly, (req, res) => {
+  const engineers = db.users.map(u => ({ id: u.id, name: u.name, email: u.email, role: u.role }));
+  res.json({ engineers });
+});
+
+// Admin: delete a user
+app.delete('/api/users/:id', authMiddleware, adminOnly, (req, res) => {
+  const idx = db.users.findIndex(u => u.id === req.params.id);
+  if (idx < 0) return res.status(404).json({ error: 'User not found' });
+  if (db.users[idx].role === 'admin') return res.status(403).json({ error: 'Cannot delete admin users' });
+  db.users.splice(idx, 1);
+  saveDb();
+  res.json({ success: true });
+});
+
 // ── Sites ─────────────────────────────────────────────────────────────────────
 
 // List sites: admins see all; engineers see assigned
@@ -1458,7 +1474,11 @@ if (token) {
 </body>
 </html>`;
 
-app.get('/', (req, res) => res.send(dashboardHtml));
+// ─── WEB DASHBOARD (served from /public) ────────────────────────────────────
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Fallback: redirect root to /index.html
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 // ─── START ────────────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
