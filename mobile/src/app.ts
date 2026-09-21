@@ -5,18 +5,17 @@
 import { Camera, CameraResultType } from '@capacitor/camera';
 import { Preferences } from '@capacitor/preferences';
 import { Network } from '@capacitor/network';
+import { Capacitor } from '@capacitor/core';
 import { v4 as uuidv4 } from 'uuid';
 import type {
   SiteInfo, GroundEquipment, DCDBRecord, TowerEquipment,
-  PhotoRecord, AppState, AuthUser, SiteAssignment, EQUIPMENT_TYPES,
-  SECTOR_OPTIONS,
+  PhotoRecord, AppState, AuthUser, SiteAssignment,
 } from './types';
+import { EQUIPMENT_TYPES, SECTOR_OPTIONS } from './types';
 
-// ─── Config — change API_BASE for production ───────────────────────────────────
-// Android emulator: http://10.0.2.2:3000
-// Physical device (same LAN): http://<pc-ip>:3000
-// Koyeb: https://your-app-name.koyeb.app/api
-const API_BASE = 'http://10.0.2.2:3000/api';
+// ─── Config ───────────────────────────────────────────────────────────────────
+// Production: http://41.84.202.39:3001/api
+const API_BASE = 'http://41.84.202.39:3001/api';
 const PREFIX   = 'btsaudit_';
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -366,7 +365,7 @@ function groundForm(editId?: string): string {
 }
 
 function groundEditForm(r: GroundEquipment): string {
-  const g = (k: keyof GroundEquipment) => String((r[k] as any) || '');
+  const g = (k: string) => String((r as any)[k] || '');
   const no = g('no');
   return `
   <form onsubmit="saveGround(event, '${r.id || ''}')" class="form-scroll">
@@ -447,6 +446,7 @@ function saveGround(e: Event, editId: string) {
     cabinetDimensions: '',
     activeIduTypes:  (el('gr_activeIduTypes') as HTMLInputElement).value,
     activeIduCount:  Number((el('gr_iduCount') as HTMLInputElement).value) || 0,
+    iduCount:        Number((el('gr_iduCount') as HTMLInputElement).value) || 0,
     nonActiveIduTypes: '',
     nonActiveIduCount: 0,
     slabDimensions:  (el('gr_slabDimensions') as HTMLInputElement).value,
@@ -494,7 +494,7 @@ function dcdbForm(editId?: string): string {
 }
 
 function dcdbEditForm(r: DCDBRecord): string {
-  const g = (k: keyof DCDBRecord) => String((r[k] as any) || '');
+  const g = (k: string) => String((r as any)[k] || '');
   return `
   <form onsubmit="saveDcdb(event, '${r.id || ''}')" class="form-scroll">
     <div class="form-section-title">DCDB Record ${g('no') ? '#'+g('no') : ''}</div>
@@ -559,7 +559,7 @@ function saveDcdb(e: Event, editId: string) {
     id:                          editId || uuidv4(),
     siteId:                      state.selectedSite?.siteId || '',
     no:                          mn('no') || 1,
-    dcdbPrioritySupplyCableSize: mk('dcdbPrioritySupplyCableSize'),
+    dcdbPrioritySupplyCableSize: Number(mk('dcdbPrioritySupplyCableSize')) || 0,
     dcdbLoadAmps:               mn('dcdbLoadAmps'),
     dcdbBreaker1: mn('dcdbBreakerA1'), dcdbBreaker2: mn('dcdbBreakerA2'),
     dcdbBreaker3: mn('dcdbBreakerA3'), dcdbBreaker4: mn('dcdbBreakerA4'), dcdbBreaker5: mn('dcdbBreakerA5'),
@@ -585,10 +585,10 @@ function saveDcdb(e: Event, editId: string) {
     remarks: (el('dr_remarks') as HTMLTextAreaElement).value,
   };
   // Map DCDU breaker fields
-  ['1','2','3','4','5'].forEach((s,i) => {
+  ['1','2','3','4','5'].forEach((s) => {
     (rec as any)['dduBreakerModel'+s] = mk('dduBreakerModel'+s);
   });
-  ['A1','A2','A3','A4','A5'].forEach((s,i) => {
+  ['A1','A2','A3','A4','A5'].forEach((s) => {
     (rec as any)['dcdbBreaker'+s] = mn('dcdbBreaker'+s);
   });
   if (editId) {
@@ -618,7 +618,7 @@ function towerForm(editId?: string): string {
 }
 
 function towerEditForm(r: TowerEquipment): string {
-  const g = (k: keyof TowerEquipment) => String((r[k] as any) || '');
+  const g = (k: string) => String((r as any)[k] || '');
   return `
   <form onsubmit="saveTower(event, '${r.id || ''}')" class="form-scroll">
     <div class="form-section-title">Tower Equipment ${g('no') ? '#'+g('no') : ''}</div>

@@ -5,12 +5,9 @@ const config: CapacitorConfig = {
   appName: 'Asset Capture',
   webDir: 'dist',
   server: {
-    // Change this to your server IP when testing on device
-    // e.g. 'http://192.168.1.100:3000'
-    // For local development on emulator, use:
-    // Android Emulator: 'http://10.0.2.2:3000'
-    // iOS Simulator: 'http://localhost:3000'
-    androidScheme: 'https',
+    // Production server
+    url: 'http://41.84.202.39:3001',
+    androidScheme: 'http',
   },
   plugins: {
     Camera: {

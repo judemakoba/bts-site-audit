@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BTS Audit — Admin Dashboard</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%2310b981'/><text x='50%25' y='55%25' dominant-baseline='middle' text-anchor='middle' font-size='18' fill='white'>📡</text></svg>" />
+</head>
+<body>
+
+<!-- LOGIN SCREEN -->
+<div id="login-screen" class="screen active">
+  <div class="login-card">
+    <div class="login-logo">📡</div>
+    <h1>BTS Site Audit</h1>
+    <p class="subtitle">Admin Dashboard</p>
+    <form id="login-form">
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input type="email" id="email" placeholder="admin@bts-audit.com" required />
+      </div>
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" placeholder="••••••••" required />
+      </div>
+      <div id="login-error" class="error-msg hidden"></div>
+      <button type="submit" class="btn-primary" id="login-btn">Sign In</button>
+    </form>
+  </div>
+</div>
+
+<!-- MAIN DASHBOARD -->
+<div id="dashboard-screen" class="screen">
+
+  <!-- TOP NAV -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="logo">📡</span>
+      <strong>BTS Audit</strong>
+      <span class="role-badge" id="role-badge"></span>
+    </div>
+    <div class="topbar-right">
+      <span id="user-name" class="user-name"></span>
+      <button class="btn-ghost" onclick="logout()">Logout</button>
+    </div>
+  </header>
+
+  <!-- SIDEBAR + CONTENT -->
+  <div class="layout">
+    <nav class="sidebar">
+      <button class="nav-item active" data-view="overview" onclick="showView('overview')">
+        <span>📊</span> Overview
+      </button>
+      <button class="nav-item" data-view="sites" onclick="showView('sites')">
+        <span>📍</span> Sites
+      </button>
+      <button class="nav-item" data-view="engineers" onclick="showView('engineers')">
+        <span>👷</span> Engineers
+      </button>
+      <button class="nav-item" data-view="reports" onclick="showView('reports')">
+        <span>📥</span> Reports
+      </button>
+    </nav>
+
+    <main class="content">
+
+      <!-- OVERVIEW -->
+      <section id="view-overview" class="view active">
+        <h2>Overview</h2>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon">👥</div>
+            <div class="stat-body">
+              <div class="stat-value" id="stat-users">—</div>
+              <div class="stat-label">Users</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">📍</div>
+            <div class="stat-body">
+              <div class="stat-value" id="stat-sites">—</div>
+              <div class="stat-label">Sites</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">⚡</div>
+            <div class="stat-body">
+              <div class="stat-value" id="stat-ground">—</div>
+              <div class="stat-label">Ground Equipment</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">🔌</div>
+            <div class="stat-body">
+              <div class="stat-value" id="stat-dcdb">—</div>
+              <div class="stat-label">DCDB Records</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">🗼</div>
+            <div class="stat-body">
+              <div class="stat-value" id="stat-tower">—</div>
+              <div class="stat-label">Tower Equipment</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">📷</div>
+            <div class="stat-body">
+              <div class="stat-value" id="stat-photos">—</div>
+              <div class="stat-label">Photos</div>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="margin-top:1.5rem">
+          <h3>Quick Actions</h3>
+          <div class="flex-row" style="gap:0.75rem; margin-top:0.75rem">
+            <button class="btn-primary" onclick="showView('sites')">Manage Sites</button>
+            <button class="btn-secondary" onclick="showView('engineers')">Add Engineer</button>
+            <button class="btn-secondary" onclick="showView('reports')">Download Report</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- SITES -->
+      <section id="view-sites" class="view">
+        <div class="flex-row space-between" style="align-items:center">
+          <h2>Sites</h2>
+          <button class="btn-primary" id="add-site-btn" onclick="openSiteModal()">+ Add Site</button>
+        </div>
+        <div class="card">
+          <div class="table-wrap">
+            <table class="data-table" id="sites-table">
+              <thead>
+                <tr>
+                  <th>Site ID</th>
+                  <th>Site Name</th>
+                  <th>ATC No.</th>
+                  <th>Cluster</th>
+                  <th>Status</th>
+                  <th>Engineers</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="sites-tbody"><tr><td colspan="7" class="loading">Loading...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ENGINEERS -->
+      <section id="view-engineers" class="view">
+        <div class="flex-row space-between" style="align-items:center">
+          <h2>Engineers</h2>
+          <button class="btn-primary" id="add-eng-btn" onclick="openEngModal()">+ Add Engineer</button>
+        </div>
+        <div class="card">
+          <div class="table-wrap">
+            <table class="data-table" id="eng-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Email</th>
+                  <th>Role</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="eng-tbody"><tr><td colspan="4" class="loading">Loading...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- REPORTS -->
+      <section id="view-reports" class="view">
+        <h2>Excel Reports</h2>
+        <p style="color:var(--text-secondary);margin-bottom:1.25rem">Download a complete 3-sheet Excel audit report per site.</p>
+        <div class="card">
+          <div class="form-group">
+            <label for="report-site-select">Select Site</label>
+            <select id="report-site-select" onchange="loadSiteSummary()">
+              <option value="">— Choose a site —</option>
+            </select>
+          </div>
+          <div id="report-summary" class="hidden" style="margin:1rem 0"></div>
+          <button class="btn-primary" id="download-report-btn" onclick="downloadReport()" disabled>
+            📥 Download Excel Report
+          </button>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<!-- ADD/EDIT SITE MODAL -->
+<div id="site-modal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 id="site-modal-title">Add Site</h3>
+      <button class="modal-close" onclick="closeSiteModal()">&times;</button>
+    </div>
+    <form id="site-form">
+      <input type="hidden" id="site-id" />
+      <div class="form-row">
+        <div class="form-group">
+          <label for="site-siteId">Site ID *</label>
+          <input type="text" id="site-siteId" placeholder="e.g. BTS-NBO-001" required />
+        </div>
+        <div class="form-group">
+          <label for="site-siteName">Site Name</label>
+          <input type="text" id="site-siteName" placeholder="e.g. Nairobi West Tower" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="site-atcNo">ATC Number</label>
+          <input type="text" id="site-atcNo" placeholder="e.g. AT-KEN-12345" />
+        </div>
+        <div class="form-group">
+          <label for="site-cluster">Cluster</label>
+          <input type="text" id="site-cluster" placeholder="e.g. Nairobi Central" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="site-latitude">Latitude</label>
+          <input type="number" id="site-latitude" step="any" placeholder="-1.2921" />
+        </div>
+        <div class="form-group">
+          <label for="site-longitude">Longitude</label>
+          <input type="number" id="site-longitude" step="any" placeholder="36.8219" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="site-address">Address</label>
+        <input type="text" id="site-address" placeholder="Full address" />
+      </div>
+      <div class="form-group">
+        <label for="site-assigned">Assign Engineers</label>
+        <select id="site-assigned" multiple style="height:120px"></select>
+        <small>Hold Ctrl/Cmd to select multiple</small>
+      </div>
+      <div id="site-modal-error" class="error-msg hidden"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn-ghost" onclick="closeSiteModal()">Cancel</button>
+        <button type="submit" class="btn-primary">Save Site</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ADD ENGINEER MODAL -->
+<div id="eng-modal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>Add Engineer</h3>
+      <button class="modal-close" onclick="closeEngModal()">&times;</button>
+    </div>
+    <form id="eng-form">
+      <div class="form-group">
+        <label for="eng-name">Full Name *</label>
+        <input type="text" id="eng-name" placeholder="Jane Doe" required />
+      </div>
+      <div class="form-group">
+        <label for="eng-email">Email *</label>
+        <input type="email" id="eng-email" placeholder="jane@company.com" required />
+      </div>
+      <div class="form-group">
+        <label for="eng-password">Password *</label>
+        <input type="password" id="eng-password" placeholder="Min 6 characters" minlength="6" required />
+      </div>
+      <div id="eng-modal-error" class="error-msg hidden"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn-ghost" onclick="closeEngModal()">Cancel</button>
+        <button type="submit" class="btn-primary">Add Engineer</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast" class="toast hidden"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

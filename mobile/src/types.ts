@@ -53,6 +53,26 @@ export interface GroundEquipment {
   // Redundant
   redundantEquipment: string;
   redundantCount: number;
+  // BTS dims (used in app forms)
+  btsDimensions: string;
+  iduCount: number;
+  trmMedia: string;
+  // Form fields (tower info stored in ground record)
+  gridPower?: boolean;
+  dgPower?: boolean;
+  solarPower?: boolean;
+  trmMediaFiber?: boolean;
+  no?: string | number;
+  towerType?: string;
+  towerHeight?: number;
+  buildingHeight?: number;
+  totalHeight?: number;
+  indoorOutdoor?: string;
+  gridDistanceTo3Phase?: number;
+  gridDistance3Phase?: number;
+  gridDgSolar?: string;
+  guardAtSite?: boolean;
+  remarks?: string;
   // Meta
   createdAt: string;
   synced: boolean;
@@ -108,6 +128,13 @@ export interface DCDBRecord {
   btsEarthingLengthPerRun: number;
   btsEarthingTotalMissing: number;
   earthingConnection: string;
+  // Extra fields used by app
+  no?: string | number;
+  dcdbPrioritySupplyCableSize?: number;
+  dcdbLoadAmps?: number;
+  rruPowerCableLength?: number;
+  btsEarthingCableLength?: number;
+  remarks?: string;
   // Meta
   createdAt: string;
   synced: boolean;
@@ -120,6 +147,7 @@ export interface TowerEquipment {
   airtelSiteId: string;
   siteName: string;
   equipmentType: 'RF antenna' | 'MW Antenna' | 'MW ODU' | 'RRU' | 'BBU' | 'DCDB' | 'Other';
+  rfEquipmentType?: string;
   antennaManufacturer: string;
   antennaModel: string;
   tenantOwner: string;
@@ -127,11 +155,18 @@ export interface TowerEquipment {
   azimuth: number;
   heightToCentre: number;
   antennaCount: number;
+  antennaPerSector?: number;
   lengthMm: number;
   widthMm: number;
   heightMm: number;
+  antennaLengthMm?: number;
+  antennaWidthMm?: number;
+  antennaHeightMm?: number;
   activeInactive: 'Active' | 'Inactive' | 'Standby' | '';
+  activeStatus?: string;
   labelling: 'Done' | 'Not Done' | '';
+  labellingDone?: 'Done' | 'Not Done' | '';
+  equipmentLabelling?: string;
   remarks: string;
   // Meta
   createdAt: string;
