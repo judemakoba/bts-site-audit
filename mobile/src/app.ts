@@ -14,8 +14,9 @@ import type {
 import { EQUIPMENT_TYPES, SECTOR_OPTIONS } from './types';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
-// Production: http://41.84.202.39:3001/api
-const API_BASE = 'http://41.84.202.39:3001/api';
+// Production: Tailscale Funnel public URL (no Tailscale needed on field device)
+// https://pve-mgmt.tailfd1512.ts.net/api -> BTS API on LXC 203:3001
+const API_BASE = 'https://pve-mgmt.tailfd1512.ts.net/api';
 const PREFIX   = 'btsaudit_';
 
 // ─── State ────────────────────────────────────────────────────────────────────

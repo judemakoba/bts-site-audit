@@ -5,9 +5,9 @@ const config: CapacitorConfig = {
   appName: 'Asset Capture',
   webDir: 'dist',
   server: {
-    // Production server
-    url: 'http://41.84.202.39:3001',
-    androidScheme: 'http',
+    // Production server — Tailscale Funnel public URL (HTTPS, no Tailscale client needed)
+    url: 'https://pve-mgmt.tailfd1512.ts.net',
+    androidScheme: 'https',
   },
   plugins: {
     Camera: {
