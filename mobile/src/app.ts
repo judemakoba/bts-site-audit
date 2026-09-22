@@ -15,8 +15,8 @@ import { EQUIPMENT_TYPES, SECTOR_OPTIONS } from './types';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 // Production: Tailscale Funnel public URL (no Tailscale needed on field device)
-// https://pve-mgmt.tailfd1512.ts.net/api -> BTS API on LXC 203:3001
-const API_BASE = 'https://pve-mgmt.tailfd1512.ts.net/api';
+// LXC 203 (bts-audit) has its own public URL via Funnel
+const API_BASE = 'https://bts-audit.tailfd1512.ts.net/api';
 const PREFIX   = 'btsaudit_';
 
 // ─── State ────────────────────────────────────────────────────────────────────

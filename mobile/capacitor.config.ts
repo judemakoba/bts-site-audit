@@ -6,7 +6,8 @@ const config: CapacitorConfig = {
   webDir: 'dist',
   server: {
     // Production server — Tailscale Funnel public URL (HTTPS, no Tailscale client needed)
-    url: 'https://pve-mgmt.tailfd1512.ts.net',
+    // LXC 203 (bts-audit) publishes directly with its own Funnel URL
+    url: 'https://bts-audit.tailfd1512.ts.net',
     androidScheme: 'https',
   },
   plugins: {
