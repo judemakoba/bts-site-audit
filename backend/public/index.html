@@ -33,6 +33,12 @@
 <!-- MAIN DASHBOARD -->
 <div id="dashboard-screen" class="screen">
 
+  <!-- SESSION ERROR BANNER -->
+  <div id="session-error-banner" class="session-banner hidden">
+    <span id="session-error-text">⚠️ Your session may have expired. Please refresh the page or log in again.</span>
+    <button onclick="logout()" style="margin-left:auto;background:none;border:none;color:inherit;cursor:pointer;font-weight:600;padding:0 4px">Re-login</button>
+  </div>
+
   <!-- TOP NAV -->
   <header class="topbar">
     <div class="topbar-left">

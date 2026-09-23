@@ -116,6 +116,20 @@ body {
 .error-msg { color: var(--danger); font-size: 13px; margin: 4px 0 8px; }
 .hidden { display: none !important; }
 
+/* ── Session error banner ── */
+.session-banner {
+  background: #fef3c7;
+  border-bottom: 1px solid #f59e0b;
+  color: #92400e;
+  padding: 8px 1.5rem;
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.session-banner:not(.hidden) { display: flex; }
+
 /* ── Topbar ── */
 .topbar {
   background: var(--surface);

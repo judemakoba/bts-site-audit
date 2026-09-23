@@ -10,13 +10,32 @@ let allSites = [];
 let allUsers = [];
 
 // ── Init ────────────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  setupForms();
   if (token && user) {
-    showDashboard();
+    // Validate the stored token before showing the dashboard
+    // to avoid silent 401 → logout → login loop
+    try {
+      const res = await fetch(`${API}/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        showDashboard();
+      } else {
+        // Token invalid/expired — clear and go to login
+        logout();
+        showLogin();
+        const errEl = document.getElementById('login-error');
+        errEl.textContent = 'Your session expired. Please log in again.';
+        errEl.classList.remove('hidden');
+      }
+    } catch {
+      // Network error — show dashboard anyway; real API calls will show banners
+      showDashboard();
+    }
   } else {
     showLogin();
   }
-  setupForms();
 });
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
@@ -31,6 +50,11 @@ function showDashboard() {
   document.getElementById('user-name').textContent = user.name;
   document.getElementById('role-badge').textContent = user.role;
   document.getElementById('email').value = user.email;
+  // Clear any stale session error banner
+  const banner = document.getElementById('session-error-banner');
+  if (banner) banner.classList.add('hidden');
+  // Clear stale login error
+  document.getElementById('login-error').classList.add('hidden');
   refreshAll();
 }
 
@@ -144,13 +168,40 @@ async function apiFetch(path, opts = {}) {
       ...(opts.headers || {}),
     },
   });
-  if (res.status === 401) { logout(); throw new Error('Session expired'); }
+  if (res.status === 401) {
+    // Signal session expiry — let the caller handle the UI update before we logout.
+    // Throwing a named error lets callers distinguish 401 from other failures.
+    const err = new Error('SESSION_EXPIRED');
+    err.code = 'SESSION_EXPIRED';
+    throw err;
+  }
   return res;
 }
 
 // ── Refresh All ───────────────────────────────────────────────────────────────
 async function refreshAll() {
-  await Promise.all([loadHealth(), loadSites(), loadUsers()]);
+  const results = await Promise.allSettled([loadHealth(), loadSites(), loadUsers()]);
+  const sessionExpired = results.some(r =>
+    r.status === 'rejected' && r.reason?.code === 'SESSION_EXPIRED'
+  );
+  if (sessionExpired) {
+    const banner = document.getElementById('session-error-banner');
+    if (banner) {
+      banner.textContent = '⚠️ Your session has expired. Click "Re-login" to log in again.';
+      banner.classList.remove('hidden');
+    }
+    // Don't call logout() here — let the user see the dashboard with the warning banner
+    // They can click Re-login to clear everything
+    return;
+  }
+  const failures = results.filter(r => r.status === 'rejected');
+  if (failures.length > 0) {
+    const banner = document.getElementById('session-error-banner');
+    if (banner) {
+      banner.textContent = '⚠️ Failed to load some data. Check your connection and refresh.';
+      banner.classList.remove('hidden');
+    }
+  }
 }
 
 // ── Health / Overview ────────────────────────────────────────────────────────
@@ -254,7 +305,10 @@ async function loadUsers() {
     const { engineers } = await res.json();
     allUsers = engineers;
     renderUsers(engineers);
-  } catch { /* non-admin may not have /users */ }
+  } catch (e) {
+    if (e?.code === 'SESSION_EXPIRED') throw e; // re-throw so caller can handle
+    /* non-admin may not have /users — silently skip */
+  }
 }
 
 function renderUsers(users) {
@@ -359,14 +413,32 @@ async function downloadReport() {
 }
 
 // ── Navigation ───────────────────────────────────────────────────────────────
-function showView(name) {
+async function showView(name) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById(`view-${name}`)?.classList.add('active');
   document.querySelector(`.nav-item[data-view="${name}"]`)?.classList.add('active');
-  if (name === 'overview') loadHealth();
-  if (name === 'sites') loadSites();
-  if (name === 'engineers') loadUsers();
+
+  const showSessionBanner = (msg) => {
+    const banner = document.getElementById('session-error-banner');
+    if (banner) { banner.textContent = msg; banner.classList.remove('hidden'); }
+  };
+
+  if (name === 'overview') {
+    await loadHealth().catch(() => {});
+  }
+  if (name === 'sites') {
+    try { await loadSites(); } catch (e) {
+      if (e?.code === 'SESSION_EXPIRED') showSessionBanner('⚠️ Session expired — click "Re-login" to log in again.');
+      else showSessionBanner('⚠️ Failed to load sites. Check your connection.');
+    }
+  }
+  if (name === 'engineers') {
+    try { await loadUsers(); } catch (e) {
+      if (e?.code === 'SESSION_EXPIRED') showSessionBanner('⚠️ Session expired — click "Re-login" to log in again.');
+      else showSessionBanner('⚠️ Failed to load engineers. Check your connection.');
+    }
+  }
 }
 
 // ── Populate assigned engineers select (for site modal) ─────────────────────
