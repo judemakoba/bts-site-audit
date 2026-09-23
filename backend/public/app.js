@@ -3,6 +3,30 @@
 // ── Config ──────────────────────────────────────────────────────────────────
 const API = '/api';
 
+// ── Session banner injection (supports both old and new index.html) ───────────
+(function injectSessionBanner() {
+  // Inject required CSS if not already present
+  if (!document.getElementById('bts-session-banner-style')) {
+    const style = document.createElement('style');
+    style.id = 'bts-session-banner-style';
+    style.textContent = [
+      '.session-banner { background: #fef3c7; border-bottom: 1px solid #f59e0b; color: #92400e; padding: 8px 1.5rem; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 8px; }',
+      '.session-banner.hidden { display: none !important; }',
+    ].join('\n');
+    document.head.appendChild(style);
+  }
+  if (document.getElementById('session-error-banner')) return; // already present
+  const banner = document.createElement('div');
+  banner.id = 'session-error-banner';
+  banner.className = 'session-banner hidden';
+  banner.innerHTML = '<span id="session-error-text">⚠️ Your session may have expired. Please refresh the page or log in again.</span>' +
+    '<button onclick="logout()" style="margin-left:auto;background:none;border:none;color:inherit;cursor:pointer;font-weight:600;padding:0 4px">Re-login</button>';
+  const topbar = document.querySelector('.topbar');
+  if (topbar && topbar.parentNode) {
+    topbar.parentNode.insertBefore(banner, topbar);
+  }
+})();
+
 // ── State ───────────────────────────────────────────────────────────────────
 let token   = localStorage.getItem('bts_token') || '';
 let user    = JSON.parse(localStorage.getItem('bts_user') || 'null');
