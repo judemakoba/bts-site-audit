@@ -1,0 +1,41 @@
+# Koyeb deployment config
+# Docs: https://koyeb.com/docs
+#
+# Deployment mode: Dockerfile-based (auto-detected when Dockerfile is present).
+# The Dockerfile handles npm install + sharp native binaries in a multi-stage build.
+# koyeb.toml vars are injected at RUNTIME only (not during Docker build).
+#
+# IMPORTANT: Set JWT_SECRET in the Koyeb dashboard under Environment Variables
+# before deploying. The Dockerfile build does NOT have access to koyeb.toml vars.
+
+name = "bts-site-audit"
+runtime.inputs = []
+
+[services]
+  name = "api"
+  runtime.port = 3000
+  runtime.health_check = { path = "/api/health" }
+
+  # No build.command — Koyeb auto-detects and uses Dockerfile.
+  # Dockerfile CMD ("node server.js") is the run command.
+  # Note: Dockerfile WORKDIR is /app, but server.js lives in /app/backend/,
+  # so we override the run command to cd first.
+
+  run.command = "node server.js"
+
+  [[services.routes]]
+    path = "/*"
+    port = 3000
+
+  [services.resources]
+    memory = "256MiB"
+    cpu = "0.25"
+
+# ── Runtime Environment Variables ──────────────────────────────────────────────
+# JWT_SECRET MUST be set in Koyeb dashboard (App → Environment Variables)
+# before the first deploy. Use a random 32+ char string.
+[vars]
+  NODE_ENV = "production"
+  PORT = "3000"
+  JWT_SECRET = "CHANGE_ME_SET_IN_KOYEB_DASHBOARD"
+  JWT_EXPIRY = "7d"

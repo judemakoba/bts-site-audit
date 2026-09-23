@@ -1,0 +1,43 @@
+{
+  "users": [
+    {
+      "id": "admin-001",
+      "name": "Admin",
+      "email": "admin@bts-audit.com",
+      "password": "$2b$10$p8sAbqqn5.vpYCdXtn6GX.FHYvQ2zHO8lvYC.WH/MkQwAJITo9HnG",
+      "role": "admin",
+      "createdAt": "2026-09-20T16:21:00.662Z"
+    },
+    {
+      "id": "a76306ec-3520-4303-963b-79d6599421fc",
+      "name": "Jude Makoba",
+      "email": "judem183@gmail.com",
+      "password": "$2b$10$7T1ADsQPBbXSaP/yZsFyRel6jugfB97e4ez7qhLmlDH67k0qzoAp2",
+      "role": "engineer",
+      "createdAt": "2026-09-20T16:36:04.270Z"
+    }
+  ],
+  "sites": [
+    {
+      "id": "f5be2665-ca09-4977-8c0c-dd88c46f902a",
+      "siteId": "KA1108",
+      "siteName": "Bugolobi",
+      "atcNo": "607030",
+      "latitude": "0.314626",
+      "longitude": "32.622251",
+      "address": "",
+      "cluster": "",
+      "assignedUsers": [
+        "a76306ec-3520-4303-963b-79d6599421fc"
+      ],
+      "status": "active",
+      "createdAt": "2026-09-20T16:38:25.901Z",
+      "createdBy": "admin-001",
+      "updatedAt": "2026-09-20T16:38:48.942Z"
+    }
+  ],
+  "groundEquipment": [],
+  "dcdbRecords": [],
+  "towerEquipment": [],
+  "photos": []
+}
