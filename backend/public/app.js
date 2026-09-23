@@ -250,6 +250,7 @@ async function loadSites() {
   renderSites(sites);
   populateReportSelect(sites);
   populateAssignedSelect();
+  console.log('[BTS] loadSites OK:', sites.length, 'sites');
 }
 
 function renderSites(sites) {
@@ -452,13 +453,19 @@ async function showView(name) {
     await loadHealth().catch(() => {});
   }
   if (name === 'sites') {
-    try { await loadSites(); } catch (e) {
+    try {
+      await loadSites();
+    } catch (e) {
+      console.error('[BTS] loadSites failed:', e?.code, e?.message, e);
       if (e?.code === 'SESSION_EXPIRED') showSessionBanner('⚠️ Session expired — click "Re-login" to log in again.');
       else showSessionBanner('⚠️ Failed to load sites. Check your connection.');
     }
   }
   if (name === 'engineers') {
-    try { await loadUsers(); } catch (e) {
+    try {
+      await loadUsers();
+    } catch (e) {
+      console.error('[BTS] loadUsers failed:', e?.code, e?.message, e);
       if (e?.code === 'SESSION_EXPIRED') showSessionBanner('⚠️ Session expired — click "Re-login" to log in again.');
       else showSessionBanner('⚠️ Failed to load engineers. Check your connection.');
     }
