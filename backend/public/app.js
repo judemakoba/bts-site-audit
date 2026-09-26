@@ -1,11 +1,13 @@
 'use strict';
 
+// ── DEBUG ──────────────────────────────────────────────────────────────────
+console.log('[BTS] app.js loaded at', new Date().toISOString());
+
 // ── Config ──────────────────────────────────────────────────────────────────
 const API = '/api';
 
-// ── Session banner injection (supports both old and new index.html) ───────────
-(function injectSessionBanner() {
-  // Inject required CSS if not already present
+// ── Session banner CSS injection (for old index.html without static banner) ──────
+(function injectSessionBannerStyle() {
   if (!document.getElementById('bts-session-banner-style')) {
     const style = document.createElement('style');
     style.id = 'bts-session-banner-style';
@@ -14,16 +16,6 @@ const API = '/api';
       '.session-banner.hidden { display: none !important; }',
     ].join('\n');
     document.head.appendChild(style);
-  }
-  if (document.getElementById('session-error-banner')) return; // already present
-  const banner = document.createElement('div');
-  banner.id = 'session-error-banner';
-  banner.className = 'session-banner hidden';
-  banner.innerHTML = '<span id="session-error-text">⚠️ Your session may have expired. Please refresh the page or log in again.</span>' +
-    '<button onclick="logout()" style="margin-left:auto;background:none;border:none;color:inherit;cursor:pointer;font-weight:600;padding:0 4px">Re-login</button>';
-  const topbar = document.querySelector('.topbar');
-  if (topbar && topbar.parentNode) {
-    topbar.parentNode.insertBefore(banner, topbar);
   }
 })();
 
@@ -34,8 +26,10 @@ let allSites = [];
 let allUsers = [];
 
 // ── Init ────────────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', async () => {
-  setupForms();
+async function init() {
+  console.log('[BTS] init() running');
+  try { setupForms(); console.log('[BTS] setupForms OK'); } catch(e) { console.error('[BTS] setupForms FAILED:', e); }
+  try { setupEventDelegation(); console.log('[BTS] setupEventDelegation OK'); } catch(e) { console.error('[BTS] setupEventDelegation FAILED:', e); }
   if (token && user) {
     // Validate the stored token before showing the dashboard
     // to avoid silent 401 → logout → login loop
@@ -60,7 +54,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   } else {
     showLogin();
   }
-});
+}
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
 function showLogin() {
@@ -92,6 +86,7 @@ function logout() {
 
 function setupForms() {
   document.getElementById('login-form').addEventListener('submit', async (e) => {
+    console.log('[BTS] login-form submit fired!');
     e.preventDefault();
     const email = document.getElementById('email').value.trim();
     const password = document.getElementById('password').value;
@@ -204,7 +199,7 @@ async function apiFetch(path, opts = {}) {
 
 // ── Refresh All ───────────────────────────────────────────────────────────────
 async function refreshAll() {
-  const results = await Promise.allSettled([loadHealth(), loadSites(), loadUsers()]);
+  const results = await Promise.allSettled([loadHealth(), loadSites(), loadUsers(), loadReviewPending(), loadDrafts()]);
   const sessionExpired = results.some(r =>
     r.status === 'rejected' && r.reason?.code === 'SESSION_EXPIRED'
   );
@@ -226,6 +221,9 @@ async function refreshAll() {
       banner.classList.remove('hidden');
     }
   }
+  // Update badges after all loads complete
+  updateReviewBadge();
+  updateDraftsBadge();
 }
 
 // ── Health / Overview ────────────────────────────────────────────────────────
@@ -268,8 +266,8 @@ function renderSites(sites) {
       <td><span class="status-badge ${s.status === 'active' ? 'status-active' : 'status-inactive'}">${s.status || 'active'}</span></td>
       <td>${(s.assignedUsers || []).length}</td>
       <td>
-        <button class="btn-icon" title="Edit" onclick="editSite('${s.id}')">✏️</button>
-        <button class="btn-icon" title="Delete" onclick="deleteSite('${s.id}')">🗑️</button>
+        <button class="btn-icon" title="Edit" data-action="edit" data-id="${s.id}">✏️</button>
+        <button class="btn-icon" title="Delete" data-action="delete" data-id="${s.id}">🗑️</button>
       </td>
     </tr>
   `).join('');
@@ -348,7 +346,7 @@ function renderUsers(users) {
       <td><a href="mailto:${esc(u.email)}">${esc(u.email)}</a></td>
       <td><span class="status-badge ${u.role === 'admin' ? 'status-active' : 'status-inactive'}">${u.role}</span></td>
       <td>
-        ${u.id !== user?.id ? `<button class="btn-icon" title="Remove" onclick="deleteUser('${u.id}','${esc(u.email)}')">🗑️</button>` : ''}
+        ${u.id !== user?.id ? `<button class="btn-icon" title="Remove" data-action="delete" data-id="${u.id}" data-email="${esc(u.email)}">🗑️</button>` : ''}
       </td>
     </tr>
   `).join('');
@@ -470,6 +468,256 @@ async function showView(name) {
       else showSessionBanner('⚠️ Failed to load engineers. Check your connection.');
     }
   }
+  if (name === 'review') {
+    await loadReviewPending().catch(() => {});
+    updateReviewBadge();
+  }
+  if (name === 'drafts') {
+    await loadDrafts().catch(() => {});
+    updateDraftsBadge();
+  }
+}
+
+// ── Review ───────────────────────────────────────────────────────────────────
+let reviewFilter = 'all';
+let reviewData = {};
+
+let draftsFilter = 'all';
+let draftsData = { drafts: {}, inProgress: {} };
+
+async function loadReviewPending() {
+  const list = document.getElementById('review-pending-list');
+  list.innerHTML = '<div class="card"><p class="loading">Loading submitted reports...</p></div>';
+  try {
+    const res = await apiFetch('/audit/review/pending');
+    if (!res.ok) throw new Error((await res.json()).error);
+    reviewData = await res.json();
+    renderReviewPending();
+    updateReviewBadge();
+  } catch (err) {
+    list.innerHTML = `<div class="card"><p class="error-msg">Failed to load: ${esc(err.message)}</p></div>`;
+  }
+}
+
+function updateReviewBadge() {
+  const total = (reviewData.ground?.length || 0) + (reviewData.dcdb?.length || 0) + (reviewData.tower?.length || 0);
+  const badge = document.getElementById('review-count-badge');
+  if (!badge) return;
+  if (total > 0) {
+    badge.textContent = total;
+    badge.classList.remove('hidden');
+  } else {
+    badge.classList.add('hidden');
+  }
+}
+
+function renderReviewPending() {
+  const list = document.getElementById('review-pending-list');
+  const filter = reviewFilter;
+  const ground = filter === 'all' || filter === 'ground' ? (reviewData.ground || []) : [];
+  const dcdb    = filter === 'all' || filter === 'dcdb'    ? (reviewData.dcdb    || []) : [];
+  const tower   = filter === 'all' || filter === 'tower'   ? (reviewData.tower   || []) : [];
+
+  const sections = [
+    { label: 'Ground Equipment', type: 'ground', records: ground, color: '#f59e0b' },
+    { label: 'DCDB Records',    type: 'dcdb',   records: dcdb,    color: '#3b82f6' },
+    { label: 'Tower Equipment', type: 'tower',  records: tower,   color: '#8b5cf6' },
+  ];
+
+  const allEmpty = sections.every(s => !s.records.length);
+  if (allEmpty) {
+    list.innerHTML = `<div class="card" style="text-align:center;padding:2rem;color:var(--text-secondary)">No submitted reports pending review.</div>`;
+    return;
+  }
+
+  list.innerHTML = sections.filter(s => s.records.length).map(s => `
+    <div class="review-section">
+      <h3 style="color:${s.color};margin:1.5rem 0 0.75rem">${s.label} (${s.records.length})</h3>
+      ${s.records.map(r => `
+        <div class="review-card">
+          <div class="review-card-header">
+            <div>
+              <strong style="font-size:15px">${esc(r.site?.siteName || r.siteId)}</strong>
+              <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">
+                Site: <code>${esc(r.siteId)}</code> &nbsp;|&nbsp;
+                Engineer: ${esc(r.user?.name || 'Unknown')} &nbsp;|&nbsp;
+                ${fmtDate(r.updatedAt || r.createdAt)}
+              </div>
+            </div>
+            <div class="flex-row" style="gap:0.4rem;flex-shrink:0">
+              <button class="btn-success btn-sm" data-review-action="approve" data-type="${s.type}" data-id="${r.id}">✅ Approve</button>
+              <button class="btn-danger btn-sm" data-review-action="reject" data-type="${s.type}" data-id="${r.id}">❌ Reject</button>
+            </div>
+          </div>
+          <div class="review-card-body">${renderRecordSummary(r, s.type)}</div>
+        </div>
+      `).join('')}
+    </div>
+  `).join('');
+}
+
+function renderRecordSummary(record, type) {
+  if (type === 'ground') {
+    return `<span>${esc(record.towerType || record.towerType || 'Ground Equipment')}</span>`;
+  }
+  if (type === 'dcdb') {
+    return `<span>DCDB Record — ${record.siteId}</span>`;
+  }
+  if (type === 'tower') {
+    return `<span>${esc(record.antennaManufacturer || '')} ${esc(record.antennaModel || '')} — ${esc(record.siteId)}</span>`;
+  }
+  return `<span>—</span>`;
+}
+
+async function approveRecord(type, id) {
+  try {
+    const res = await apiFetch(`/audit/review/${type}/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ action: 'approve' }),
+    });
+    if (!res.ok) throw new Error((await res.json()).error);
+    toast('Report approved!', 'success');
+    await loadReviewPending();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+let pendingReject = null; // { type, id }
+
+async function rejectRecord() {
+  if (!pendingReject) return;
+  const reason = document.getElementById('reject-reason-input')?.value?.trim() || 'No reason provided';
+  const { type, id } = pendingReject;
+  pendingReject = null;
+  closeRejectModal();
+  try {
+    const res = await apiFetch(`/audit/review/${type}/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ action: 'reject', rejectionReason: reason }),
+    });
+    if (!res.ok) throw new Error((await res.json()).error);
+    toast('Report rejected — engineer will be notified.', 'success');
+    await loadReviewPending();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+function showRejectModal(type, id) {
+  pendingReject = { type, id };
+  const modal = document.getElementById('reject-modal');
+  document.getElementById('reject-type').textContent = type.charAt(0).toUpperCase() + type.slice(1);
+  document.getElementById('reject-reason-input').value = '';
+  modal.classList.remove('hidden');
+}
+
+function closeRejectModal() {
+  document.getElementById('reject-modal').classList.add('hidden');
+  pendingReject = null;
+}
+
+// ── Drafts & In Progress ─────────────────────────────────────────────────────
+async function loadDrafts() {
+  const list = document.getElementById('drafts-list');
+  list.innerHTML = '<div class="card"><p class="loading">Loading drafts &amp; in-progress records...</p></div>';
+  try {
+    const [draftsRes, inProgRes] = await Promise.all([
+      apiFetch('/audit/drafts'),
+      apiFetch('/audit/in-progress'),
+    ]);
+    const [drafts, inProgress] = await Promise.all([draftsRes.json(), inProgRes.json()]);
+    draftsData = { drafts, inProgress };
+    renderDrafts();
+    updateDraftsBadge();
+  } catch (err) {
+    list.innerHTML = `<div class="card"><p class="error-msg">Failed to load: ${esc(err.message)}</p></div>`;
+  }
+}
+
+function updateDraftsBadge() {
+  const total = countDrafts(draftsData.drafts) + countDrafts(draftsData.inProgress);
+  const badge = document.getElementById('drafts-count-badge');
+  if (!badge) return;
+  if (total > 0) {
+    badge.textContent = total;
+    badge.classList.remove('hidden');
+  } else {
+    badge.classList.add('hidden');
+  }
+}
+
+function countDrafts(obj) {
+  return (obj.ground?.length || 0) + (obj.dcdb?.length || 0) + (obj.tower?.length || 0);
+}
+
+function renderDrafts() {
+  const list = document.getElementById('drafts-list');
+  const filter = draftsFilter;
+  const { drafts, inProgress } = draftsData;
+
+  const sections = [];
+
+  if (filter === 'all' || filter === 'drafts') {
+    const gd = drafts.ground || [];
+    const dd = drafts.dcdb || [];
+    const td = drafts.tower || [];
+    if (gd.length + dd.length + td.length > 0) {
+      sections.push({ label: 'Drafts (saved, not submitted)', type: 'draft', color: '#f59e0b', ground: gd, dcdb: dd, tower: td });
+    }
+  }
+
+  if (filter === 'all' || filter === 'inprogress') {
+    const gi = inProgress.ground || [];
+    const di = inProgress.dcdb || [];
+    const ti = inProgress.tower || [];
+    if (gi.length + di.length + ti.length > 0) {
+      sections.push({ label: 'In Progress (partial / unclear status)', type: 'inprogress', color: '#3b82f6', ground: gi, dcdb: di, tower: ti });
+    }
+  }
+
+  if (!sections.length) {
+    list.innerHTML = `<div class="card" style="text-align:center;padding:2rem;color:var(--text-secondary)">No drafts or in-progress records found.</div>`;
+    return;
+  }
+
+  list.innerHTML = sections.map(sec => {
+    const records = [
+      ...sec.ground.map(r => ({ ...r, _type: 'ground' })),
+      ...sec.dcdb.map(r => ({ ...r, _type: 'dcdb' })),
+      ...sec.tower.map(r => ({ ...r, _type: 'tower' })),
+    ];
+    return `
+      <div style="margin-bottom:1.5rem">
+        <h3 style="color:${sec.color};margin:0 0 0.75rem;font-size:15px">
+          ${sec.label}
+          <span style="font-weight:400;font-size:13px;color:var(--text-secondary)"> — ${records.length} record${records.length !== 1 ? 's' : ''}</span>
+        </h3>
+        ${records.length ? records.map(r => `
+          <div class="review-card" style="margin-bottom:0.75rem">
+            <div class="review-card-header">
+              <div>
+                <strong style="font-size:14px">${esc(r.site?.siteName || r.siteId || 'Unknown Site')}</strong>
+                <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">
+                  Site: <code>${esc(r.siteId)}</code> &nbsp;|&nbsp;
+                  Type: <span style="text-transform:capitalize">${esc(r._type)}</span> &nbsp;|&nbsp;
+                  Engineer: ${esc(r.user?.name || 'Unknown')} &nbsp;|&nbsp;
+                  Saved: ${fmtDate(r.updatedAt || r.createdAt)}
+                </div>
+                <div style="font-size:12px;color:var(--text-secondary);margin-top:2px">
+                  Status: <span class="status-badge status-pending">${esc(r.status || 'in-progress')}</span>
+                </div>
+              </div>
+              <div class="flex-row" style="gap:0.4rem;flex-shrink:0">
+                <button class="btn-sm btn-primary" disabled style="opacity:0.5" title="Engineer must submit this record">Awaiting Submit</button>
+              </div>
+            </div>
+            <div class="review-card-body">${renderRecordSummary(r, r._type)}</div>
+          </div>
+        `).join('') : `<div class="card"><p style="color:var(--text-secondary);font-size:13px;text-align:center">No records in this category.</p></div>`}
+      </div>
+    `;
+  }).join('');
 }
 
 // ── Populate assigned engineers select (for site modal) ─────────────────────
@@ -494,3 +742,100 @@ function toast(msg, type = 'info') {
   el.classList.remove('hidden');
   setTimeout(() => el.classList.add('hidden'), 3000);
 }
+
+// ── Event Delegation (CSP-safe — no inline onclick handlers) ───────────────
+function setupEventDelegation() {
+  // Nav sidebar buttons
+  document.querySelector('.sidebar').addEventListener('click', e => {
+    const btn = e.target.closest('[data-view]');
+    if (btn) showView(btn.dataset.view);
+  });
+
+  // Quick action buttons in overview
+  document.getElementById('quick-sites-btn').addEventListener('click', () => showView('sites'));
+  document.getElementById('quick-engineers-btn').addEventListener('click', () => showView('engineers'));
+  document.getElementById('quick-reports-btn').addEventListener('click', () => showView('reports'));
+
+  // Logout
+  document.getElementById('logout-btn').addEventListener('click', logout);
+  document.getElementById('session-relogin-btn').addEventListener('click', () => { logout(); showLogin(); });
+
+  // Add buttons
+  document.getElementById('add-site-btn').addEventListener('click', () => openSiteModal());
+  document.getElementById('add-eng-btn').addEventListener('click', () => openEngModal());
+
+  // Report select change
+  document.getElementById('report-site-select').addEventListener('change', loadSiteSummary);
+
+  // Download report
+  document.getElementById('download-report-btn').addEventListener('click', downloadReport);
+
+  // Review refresh
+  document.getElementById('refresh-review-btn').addEventListener('click', () => loadReviewPending());
+
+  // Drafts refresh
+  document.getElementById('refresh-drafts-btn').addEventListener('click', () => loadDrafts());
+
+  // Review filter tabs
+  document.querySelectorAll('.tab-btn[data-review-filter]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      reviewFilter = btn.dataset.reviewFilter;
+      document.querySelectorAll('.tab-btn[data-review-filter]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderReviewPending();
+    });
+  });
+
+  // Drafts filter tabs
+  document.querySelectorAll('.tab-btn[data-drafts-filter]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      draftsFilter = btn.dataset.draftsFilter;
+      document.querySelectorAll('.tab-btn[data-drafts-filter]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderDrafts();
+    });
+  });
+
+  // Reject modal
+  document.getElementById('reject-submit-btn').addEventListener('click', rejectRecord);
+  document.getElementById('reject-cancel-btn').addEventListener('click', closeRejectModal);
+  document.getElementById('reject-modal-close-btn').addEventListener('click', closeRejectModal);
+
+  // Modal close/cancel buttons
+  document.getElementById('site-modal-close-btn').addEventListener('click', closeSiteModal);
+  document.getElementById('site-modal-cancel-btn').addEventListener('click', closeSiteModal);
+  document.getElementById('eng-modal-close-btn').addEventListener('click', closeEngModal);
+  document.getElementById('eng-modal-cancel-btn').addEventListener('click', closeEngModal);
+
+  // Table action delegation (sites and engineers tables)
+  // These fire after loadSites/loadUsers populate the tbody
+  document.addEventListener('click', e => {
+    // Sites table actions
+    if (e.target.closest('#sites-tbody')) {
+      const btn = e.target.closest('[data-action]');
+      if (!btn) return;
+      const { action, id } = btn.dataset;
+      if (action === 'edit') editSite(id);
+      if (action === 'delete') deleteSite(id);
+    }
+    // Engineers table actions
+    if (e.target.closest('#eng-tbody')) {
+      const btn = e.target.closest('[data-action]');
+      if (!btn) return;
+      const { action, id, email } = btn.dataset;
+      if (action === 'delete') deleteUser(id, email);
+    }
+    // Review card actions
+    if (e.target.closest('[data-review-action]')) {
+      const btn = e.target.closest('[data-review-action]');
+      const { reviewAction, type, id } = btn.dataset;
+      if (reviewAction === 'approve') approveRecord(type, id);
+      if (reviewAction === 'reject') showRejectModal(type, id);
+    }
+  });
+}
+
+// ── Bootstrap ───────────────────────────────────────────────────────────────
+// Script is at end of body — DOM is guaranteed ready when this executes.
+// Always call init() directly (no need for DOMContentLoaded check).
+init().catch(e => console.error('[BTS] init() failed:', e));

@@ -306,6 +306,48 @@ h3 { font-size: 1rem; font-weight: 600; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 99px; }
 
+/* ── Review ── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--danger);
+  color: white;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+}
+.nav-item { position: relative; display: flex; align-items: center; gap: 6px; }
+.review-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 0.75rem;
+  overflow: hidden;
+}
+.review-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+.review-card-body {
+  padding: 0.75rem 1.25rem;
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: var(--bg);
+}
+.btn-sm { padding: 5px 12px; font-size: 12px; border-radius: 6px; border: none; cursor: pointer; font-weight: 600; }
+.btn-success { background: var(--primary); color: white; }
+.btn-success:hover { background: var(--primary-dark); }
+.btn-danger { background: var(--danger); color: white; }
+.btn-danger:hover { background: #dc2626; }
+
 /* ── Responsive ── */
 @media (max-width: 640px) {
   .sidebar { width: 56px; }
@@ -314,4 +356,5 @@ h3 { font-size: 1rem; font-weight: 600; }
   .content { padding: 1rem; }
   .form-row { grid-template-columns: 1fr; }
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
+  .review-card-header { flex-direction: column; gap: 0.5rem; }
 }

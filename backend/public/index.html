@@ -36,7 +36,7 @@
   <!-- SESSION ERROR BANNER -->
   <div id="session-error-banner" class="session-banner hidden">
     <span id="session-error-text">⚠️ Your session may have expired. Please refresh the page or log in again.</span>
-    <button onclick="logout()" style="margin-left:auto;background:none;border:none;color:inherit;cursor:pointer;font-weight:600;padding:0 4px">Re-login</button>
+    <button id="session-relogin-btn" style="margin-left:auto;background:none;border:none;color:inherit;cursor:pointer;font-weight:600;padding:0 4px">Re-login</button>
   </div>
 
   <!-- TOP NAV -->
@@ -48,24 +48,32 @@
     </div>
     <div class="topbar-right">
       <span id="user-name" class="user-name"></span>
-      <button class="btn-ghost" onclick="logout()">Logout</button>
+      <button class="btn-ghost" id="logout-btn">Logout</button>
     </div>
   </header>
 
   <!-- SIDEBAR + CONTENT -->
   <div class="layout">
     <nav class="sidebar">
-      <button class="nav-item active" data-view="overview" onclick="showView('overview')">
+      <button class="nav-item active" data-view="overview">
         <span>📊</span> Overview
       </button>
-      <button class="nav-item" data-view="sites" onclick="showView('sites')">
+      <button class="nav-item" data-view="sites">
         <span>📍</span> Sites
       </button>
-      <button class="nav-item" data-view="engineers" onclick="showView('engineers')">
+      <button class="nav-item" data-view="engineers">
         <span>👷</span> Engineers
       </button>
-      <button class="nav-item" data-view="reports" onclick="showView('reports')">
+      <button class="nav-item" data-view="reports">
         <span>📥</span> Reports
+      </button>
+      <button class="nav-item" data-view="review">
+        <span>✅</span> Review
+        <span class="badge hidden" id="review-count-badge">0</span>
+      </button>
+      <button class="nav-item" data-view="drafts">
+        <span>📝</span> Drafts &amp; WIP
+        <span class="badge hidden" id="drafts-count-badge">0</span>
       </button>
     </nav>
 
@@ -121,9 +129,9 @@
         <div class="card" style="margin-top:1.5rem">
           <h3>Quick Actions</h3>
           <div class="flex-row" style="gap:0.75rem; margin-top:0.75rem">
-            <button class="btn-primary" onclick="showView('sites')">Manage Sites</button>
-            <button class="btn-secondary" onclick="showView('engineers')">Add Engineer</button>
-            <button class="btn-secondary" onclick="showView('reports')">Download Report</button>
+            <button class="btn-primary" id="quick-sites-btn">Manage Sites</button>
+            <button class="btn-secondary" id="quick-engineers-btn">Add Engineer</button>
+            <button class="btn-secondary" id="quick-reports-btn">Download Report</button>
           </div>
         </div>
       </section>
@@ -132,7 +140,7 @@
       <section id="view-sites" class="view">
         <div class="flex-row space-between" style="align-items:center">
           <h2>Sites</h2>
-          <button class="btn-primary" id="add-site-btn" onclick="openSiteModal()">+ Add Site</button>
+          <button class="btn-primary" id="add-site-btn">+ Add Site</button>
         </div>
         <div class="card">
           <div class="table-wrap">
@@ -158,7 +166,7 @@
       <section id="view-engineers" class="view">
         <div class="flex-row space-between" style="align-items:center">
           <h2>Engineers</h2>
-          <button class="btn-primary" id="add-eng-btn" onclick="openEngModal()">+ Add Engineer</button>
+          <button class="btn-primary" id="add-eng-btn">+ Add Engineer</button>
         </div>
         <div class="card">
           <div class="table-wrap">
@@ -184,14 +192,61 @@
         <div class="card">
           <div class="form-group">
             <label for="report-site-select">Select Site</label>
-            <select id="report-site-select" onchange="loadSiteSummary()">
+            <select id="report-site-select">
               <option value="">— Choose a site —</option>
             </select>
           </div>
           <div id="report-summary" class="hidden" style="margin:1rem 0"></div>
-          <button class="btn-primary" id="download-report-btn" onclick="downloadReport()" disabled>
+          <button class="btn-primary" id="download-report-btn" disabled>
             📥 Download Excel Report
           </button>
+        </div>
+      </section>
+
+      <!-- REVIEW -->
+      <section id="view-review" class="view">
+        <div class="flex-row space-between" style="align-items:center">
+          <h2>Review Submitted Reports</h2>
+          <button class="btn-secondary" id="refresh-review-btn">🔄 Refresh</button>
+        </div>
+        <p style="color:var(--text-secondary);margin-bottom:1.25rem">Review submitted audit reports and either approve or reject them with feedback.</p>
+
+        <!-- Filter tabs -->
+        <div class="card" style="margin-bottom:1rem">
+          <div class="filter-tabs" style="display:flex;gap:0.5rem">
+            <button class="tab-btn active" data-review-filter="all">All Pending</button>
+            <button class="tab-btn" data-review-filter="ground">Ground Equipment</button>
+            <button class="tab-btn" data-review-filter="dcdb">DCDB</button>
+            <button class="tab-btn" data-review-filter="tower">Tower Equipment</button>
+          </div>
+        </div>
+
+        <!-- Pending list -->
+        <div id="review-pending-list">
+          <div class="card"><p class="loading">Loading submitted reports...</p></div>
+        </div>
+      </section>
+
+      <!-- DRAFTS & IN PROGRESS -->
+      <section id="view-drafts" class="view">
+        <div class="flex-row space-between" style="align-items:center">
+          <h2>Drafts &amp; In Progress</h2>
+          <button class="btn-secondary" id="refresh-drafts-btn">🔄 Refresh</button>
+        </div>
+        <p style="color:var(--text-secondary);margin-bottom:1.25rem">Records saved as drafts or still in progress — not yet submitted for review.</p>
+
+        <!-- Filter tabs -->
+        <div class="card" style="margin-bottom:1rem">
+          <div class="filter-tabs" style="display:flex;gap:0.5rem">
+            <button class="tab-btn active" data-drafts-filter="all">All</button>
+            <button class="tab-btn" data-drafts-filter="drafts">Drafts</button>
+            <button class="tab-btn" data-drafts-filter="inprogress">In Progress</button>
+          </div>
+        </div>
+
+        <!-- Drafts list -->
+        <div id="drafts-list">
+          <div class="card"><p class="loading">Loading drafts &amp; in-progress records...</p></div>
         </div>
       </section>
 
@@ -204,7 +259,7 @@
   <div class="modal-content">
     <div class="modal-header">
       <h3 id="site-modal-title">Add Site</h3>
-      <button class="modal-close" onclick="closeSiteModal()">&times;</button>
+      <button class="modal-close" id="site-modal-close-btn">&times;</button>
     </div>
     <form id="site-form">
       <input type="hidden" id="site-id" />
@@ -249,7 +304,7 @@
       </div>
       <div id="site-modal-error" class="error-msg hidden"></div>
       <div class="modal-footer">
-        <button type="button" class="btn-ghost" onclick="closeSiteModal()">Cancel</button>
+        <button type="button" class="btn-ghost" id="site-modal-cancel-btn">Cancel</button>
         <button type="submit" class="btn-primary">Save Site</button>
       </div>
     </form>
@@ -261,7 +316,7 @@
   <div class="modal-content">
     <div class="modal-header">
       <h3>Add Engineer</h3>
-      <button class="modal-close" onclick="closeEngModal()">&times;</button>
+      <button class="modal-close" id="eng-modal-close-btn">&times;</button>
     </div>
     <form id="eng-form">
       <div class="form-group">
@@ -278,7 +333,7 @@
       </div>
       <div id="eng-modal-error" class="error-msg hidden"></div>
       <div class="modal-footer">
-        <button type="button" class="btn-ghost" onclick="closeEngModal()">Cancel</button>
+        <button type="button" class="btn-ghost" id="eng-modal-cancel-btn">Cancel</button>
         <button type="submit" class="btn-primary">Add Engineer</button>
       </div>
     </form>
@@ -288,6 +343,24 @@
 <!-- TOAST -->
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js"></script>
+<!-- REJECT RECORD MODAL -->
+<div id="reject-modal" class="modal hidden">
+  <div class="modal-content" style="max-width:480px">
+    <div class="modal-header">
+      <h3>Reject <span id="reject-type">Report</span></h3>
+      <button class="modal-close" id="reject-modal-close-btn">&times;</button>
+    </div>
+    <div class="form-group">
+      <label for="reject-reason-input">Reason for rejection <span style="color:var(--text-secondary);font-weight:400">(required — engineer will see this)</span></label>
+      <textarea id="reject-reason-input" rows="3" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px" placeholder="e.g. Missing GPS coordinates for site photos, incorrect tower height measurement..."></textarea>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn-ghost" id="reject-cancel-btn">Cancel</button>
+      <button type="button" class="btn-danger" id="reject-submit-btn">Send Rejection</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js?v=4" defer></script>
 </body>
 </html>

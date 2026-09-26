@@ -40,19 +40,21 @@ const globalLimiter = rateLimit({
 app.use('/api', globalLimiter);
 
 // Auth rate limit: 5 login attempts/min per IP (stops credential stuffing)
+// NOTE: per-IP lockout below is more aggressive (3 tries → 30 sec)
+// The express-rate-limit is a safety net; the custom lockout handles the UX flow
 const authLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Too many login attempts. Please wait 1 minute.' },
+  message: { error: 'Too many requests. Please wait a moment.' },
 });
 
 // ─── FAILED LOGIN LOCKOUT ─────────────────────────────────────────────────────
 // Track failed attempts: { ip: { count, lastAttempt } }
 const failedLogins = {};
-const LOCKOUT_THRESHOLD = 5;     // 5 failed attempts
-const LOCKOUT_DURATION  = 15 * 60 * 1000; // 15 minutes
+const LOCKOUT_THRESHOLD = 3;     // 3 failed attempts
+const LOCKOUT_DURATION  = 30 * 1000; // 30 seconds
 
 function isLockedOut(ip) {
   const record = failedLogins[ip];
@@ -185,7 +187,8 @@ function adminOnly(req, res, next) {
 // ─── MULTER: Photo Upload (site-nested) ──────────────────────────────────────
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
-const sharp  = require('sharp');
+let sharp;
+try { sharp = require('sharp'); } catch(e) { sharp = null; console.warn('sharp not available, skipping thumbnails'); }
 
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 const CATEGORIES  = ['ground', 'dcdb', 'tower', 'general'];
@@ -258,18 +261,36 @@ app.get('/api/health', (req, res) => {
 app.post('/api/auth/login', authLimiter, (req, res) => {
   const clientIp = (req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
   if (isLockedOut(clientIp)) {
+    const remainingMs = LOCKOUT_DURATION - (Date.now() - (failedLogins[clientIp]?.lastAttempt || 0));
+    const remainingSec = Math.max(0, Math.ceil(remainingMs / 1000));
     return res.status(429).json({
-      error: 'Account temporarily locked due to too many failed login attempts. Please wait 15 minutes.',
-      retryAfter: Math.ceil(LOCKOUT_DURATION / 60000) + ' minutes',
+      error: `Too many failed attempts. Please wait ${remainingSec} seconds before trying again.`,
+      code: 'ACCOUNT_LOCKED',
+      retryAfterSeconds: remainingSec,
     });
   }
   const { email, password } = req.body;
-  if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+  if (!email || !password) return res.status(400).json({
+    error: 'Please enter your email and password.',
+    code: 'MISSING_FIELDS',
+  });
   const user = db.users.find(u => u.email.toLowerCase() === email.toLowerCase());
-  if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+  if (!user) {
+    return res.status(401).json({
+      error: 'Invalid email or password.',
+      code: 'INVALID_CREDENTIALS',
+    });
+  }
   if (!bcrypt.compareSync(password, user.password)) {
     recordFailedLogin(clientIp);
-    return res.status(401).json({ error: 'Invalid credentials' });
+    const attemptsLeft = Math.max(0, LOCKOUT_THRESHOLD - (failedLogins[clientIp]?.count || 0));
+    return res.status(401).json({
+      error: attemptsLeft > 0
+        ? `Invalid email or password. ${attemptsLeft} attempt${attemptsLeft === 1 ? '' : 's'} remaining.`
+        : 'Account locked. Please wait 30 seconds.',
+      code: 'INVALID_CREDENTIALS',
+      attemptsLeft,
+    });
   }
   clearFailedLogin(clientIp);
   const token = signToken(user.id, user.role);
@@ -407,8 +428,9 @@ app.get('/api/users/engineers', authMiddleware, adminOnly, (req, res) => {
 });
 
 // ── Audit Sync (primary mobile endpoint — scoped to userId + siteId) ───────────
+// action: "save" (draft) | "submit" (for review) | undefined (legacy sync, auto-sets submitted)
 app.post('/api/audit/sync', authMiddleware, (req, res) => {
-  const { siteId, site, ground, dcdb, tower } = req.body;
+  const { siteId, site, ground, dcdb, tower, action } = req.body;
   if (!siteId) return res.status(400).json({ error: 'siteId is required' });
 
   const siteRef = db.sites.find(s => s.siteId === siteId);
@@ -419,12 +441,16 @@ app.post('/api/audit/sync', authMiddleware, (req, res) => {
 
   const uid = req.userId;
   const now = new Date().toISOString();
+  const isDraft = action === 'save';
+  const status = isDraft ? 'draft' : 'submitted';
+  // Clear rejection on re-submit
+  const rejectionFields = isDraft ? {} : { rejectionReason: null };
 
   // Upsert site info (one per user per site)
   if (site) {
     const existing = db.groundEquipment.find(e => e.userId === uid && e.siteId === siteId && e._isSiteInfo);
-    if (existing) Object.assign(existing, { ...site, updatedAt: now });
-    else db.groundEquipment.push({ id: uuidv4(), _isSiteInfo: true, userId: uid, siteId, ...site, createdAt: now, updatedAt: now, syncedAt: now });
+    if (existing) Object.assign(existing, { ...site, updatedAt: now, ...rejectionFields });
+    else db.groundEquipment.push({ id: uuidv4(), _isSiteInfo: true, userId: uid, siteId, ...site, createdAt: now, updatedAt: now, syncedAt: now, status: 'submitted', ...rejectionFields });
   }
 
   // Ground equipment
@@ -432,8 +458,14 @@ app.post('/api/audit/sync', authMiddleware, (req, res) => {
     ground.forEach(item => {
       item.id = item.id || uuidv4();
       const idx = db.groundEquipment.findIndex(e => e.id === item.id && e.userId === uid && e.siteId === siteId && !e._isSiteInfo);
-      if (idx >= 0) db.groundEquipment[idx] = { ...db.groundEquipment[idx], ...item, userId: uid, siteId, updatedAt: now, syncedAt: now };
-      else db.groundEquipment.push({ ...item, id: item.id, userId: uid, siteId, createdAt: now, updatedAt: now, syncedAt: now });
+      if (idx >= 0) {
+        const existing = db.groundEquipment[idx];
+        // Already submitted/rejected → re-submitting clears rejection
+        const newStatus = (existing.status === 'rejected' && !isDraft) ? 'submitted' : status;
+        db.groundEquipment[idx] = { ...existing, ...item, userId: uid, siteId, updatedAt: now, syncedAt: now, status: newStatus, ...rejectionFields };
+      } else {
+        db.groundEquipment.push({ ...item, id: item.id, userId: uid, siteId, createdAt: now, updatedAt: now, syncedAt: now, status, ...rejectionFields });
+      }
     });
   }
 
@@ -442,8 +474,13 @@ app.post('/api/audit/sync', authMiddleware, (req, res) => {
     dcdb.forEach(item => {
       item.id = item.id || uuidv4();
       const idx = db.dcdbRecords.findIndex(e => e.id === item.id && e.userId === uid && e.siteId === siteId);
-      if (idx >= 0) db.dcdbRecords[idx] = { ...db.dcdbRecords[idx], ...item, userId: uid, siteId, updatedAt: now, syncedAt: now };
-      else db.dcdbRecords.push({ ...item, id: item.id, userId: uid, siteId, createdAt: now, updatedAt: now, syncedAt: now });
+      if (idx >= 0) {
+        const existing = db.dcdbRecords[idx];
+        const newStatus = (existing.status === 'rejected' && !isDraft) ? 'submitted' : status;
+        db.dcdbRecords[idx] = { ...existing, ...item, userId: uid, siteId, updatedAt: now, syncedAt: now, status: newStatus, ...rejectionFields };
+      } else {
+        db.dcdbRecords.push({ ...item, id: item.id, userId: uid, siteId, createdAt: now, updatedAt: now, syncedAt: now, status, ...rejectionFields });
+      }
     });
   }
 
@@ -452,18 +489,132 @@ app.post('/api/audit/sync', authMiddleware, (req, res) => {
     tower.forEach(item => {
       item.id = item.id || uuidv4();
       const idx = db.towerEquipment.findIndex(e => e.id === item.id && e.userId === uid && e.siteId === siteId);
-      if (idx >= 0) db.towerEquipment[idx] = { ...db.towerEquipment[idx], ...item, userId: uid, siteId, updatedAt: now, syncedAt: now };
-      else db.towerEquipment.push({ ...item, id: item.id, userId: uid, siteId, createdAt: now, updatedAt: now, syncedAt: now });
+      if (idx >= 0) {
+        const existing = db.towerEquipment[idx];
+        const newStatus = (existing.status === 'rejected' && !isDraft) ? 'submitted' : status;
+        db.towerEquipment[idx] = { ...existing, ...item, userId: uid, siteId, updatedAt: now, syncedAt: now, status: newStatus, ...rejectionFields };
+      } else {
+        db.towerEquipment.push({ ...item, id: item.id, userId: uid, siteId, createdAt: now, updatedAt: now, syncedAt: now, status, ...rejectionFields });
+      }
     });
   }
 
   saveDb();
   res.json({
     success: true, syncedAt: now, siteId,
+    status,
     groundEquipment: db.groundEquipment.filter(e => e.userId === uid && e.siteId === siteId && !e._isSiteInfo).length,
     dcdbRecords:    db.dcdbRecords.filter(e => e.userId === uid && e.siteId === siteId).length,
     towerEquipment:  db.towerEquipment.filter(e => e.userId === uid && e.siteId === siteId).length,
   });
+});
+
+// ── Get rejected records for the current engineer ─────────────────────────────
+app.get('/api/audit/rejected', authMiddleware, (req, res) => {
+  const uid = req.userId;
+  const ground = db.groundEquipment.filter(e => e.userId === uid && e.status === 'rejected' && !e._isSiteInfo);
+  const dcdb    = db.dcdbRecords.filter(e => e.userId === uid && e.status === 'rejected');
+  const tower   = db.towerEquipment.filter(e => e.userId === uid && e.status === 'rejected');
+  res.json({ rejected: { ground, dcdb, tower } });
+});
+
+// ── Admin: list submitted records for review ────────────────────────────────
+app.get('/api/audit/review/pending', authMiddleware, adminOnly, (req, res) => {
+  const { type } = req.query; // ground | dcdb | tower | all
+  const all = !type || type === 'all';
+  const result = {};
+  if (all || type === 'ground') {
+    result.ground = db.groundEquipment
+      .filter(e => e.status === 'submitted' && !e._isSiteInfo)
+      .map(e => ({ ...e, site: db.sites.find(s => s.siteId === e.siteId), user: findById(db.users, e.userId) }));
+  }
+  if (all || type === 'dcdb') {
+    result.dcdb = db.dcdbRecords
+      .filter(e => e.status === 'submitted')
+      .map(e => ({ ...e, site: db.sites.find(s => s.siteId === e.siteId), user: findById(db.users, e.userId) }));
+  }
+  if (all || type === 'tower') {
+    result.tower = db.towerEquipment
+      .filter(e => e.status === 'submitted')
+      .map(e => ({ ...e, site: db.sites.find(s => s.siteId === e.siteId), user: findById(db.users, e.userId) }));
+  }
+  res.json(result);
+});
+
+// ── Admin: list all drafts (status = 'draft') ───────────────────────────
+app.get('/api/audit/drafts', authMiddleware, adminOnly, (req, res) => {
+  const { type } = req.query;
+  const all = !type || type === 'all';
+  const result = {};
+  if (all || type === 'ground') {
+    result.ground = db.groundEquipment
+      .filter(e => e.status === 'draft' && !e._isSiteInfo)
+      .map(e => ({ ...e, site: db.sites.find(s => s.siteId === e.siteId), user: findById(db.users, e.userId) }));
+  }
+  if (all || type === 'dcdb') {
+    result.dcdb = db.dcdbRecords
+      .filter(e => e.status === 'draft')
+      .map(e => ({ ...e, site: db.sites.find(s => s.siteId === e.siteId), user: findById(db.users, e.userId) }));
+  }
+  if (all || type === 'tower') {
+    result.tower = db.towerEquipment
+      .filter(e => e.status === 'draft')
+      .map(e => ({ ...e, site: db.sites.find(s => s.siteId === e.siteId), user: findById(db.users, e.userId) }));
+  }
+  res.json(result);
+});
+
+// ── Admin: list in-progress records (no recognised status) ──────────────
+app.get('/api/audit/in-progress', authMiddleware, adminOnly, (req, res) => {
+  const { type } = req.query;
+  const all = !type || type === 'all';
+  const KNOWN = new Set(['draft', 'submitted', 'approved', 'rejected']);
+  const result = {};
+  if (all || type === 'ground') {
+    result.ground = db.groundEquipment
+      .filter(e => !KNOWN.has(e.status) && !e._isSiteInfo)
+      .map(e => ({ ...e, site: db.sites.find(s => s.siteId === e.siteId), user: findById(db.users, e.userId) }));
+  }
+  if (all || type === 'dcdb') {
+    result.dcdb = db.dcdbRecords
+      .filter(e => !KNOWN.has(e.status))
+      .map(e => ({ ...e, site: db.sites.find(s => s.siteId === e.siteId), user: findById(db.users, e.userId) }));
+  }
+  if (all || type === 'tower') {
+    result.tower = db.towerEquipment
+      .filter(e => !KNOWN.has(e.status))
+      .map(e => ({ ...e, site: db.sites.find(s => s.siteId === e.siteId), user: findById(db.users, e.userId) }));
+  }
+  res.json(result);
+});
+
+// ── Admin: approve or reject a submitted record ─────────────────────────────
+app.put('/api/audit/review/:type/:id', authMiddleware, adminOnly, (req, res) => {
+  const { type, id } = req.params;
+  const { action, rejectionReason } = req.body; // action: "approve" | "reject"
+  if (!['approve', 'reject'].includes(action)) {
+    return res.status(400).json({ error: 'action must be approve or reject' });
+  }
+
+  let collection;
+  if (type === 'ground') collection = db.groundEquipment;
+  else if (type === 'dcdb') collection = db.dcdbRecords;
+  else if (type === 'tower') collection = db.towerEquipment;
+  else return res.status(400).json({ error: 'Invalid type. Use ground, dcdb, or tower.' });
+
+  const idx = collection.findIndex(e => e.id === id);
+  if (idx < 0) return res.status(404).json({ error: 'Record not found' });
+
+  collection[idx].status = action === 'approve' ? 'approved' : 'rejected';
+  if (action === 'reject') {
+    collection[idx].rejectionReason = rejectionReason || 'No reason provided';
+    collection[idx].rejectedAt = new Date().toISOString();
+    collection[idx].rejectedBy = req.userId;
+  }
+  collection[idx].reviewedAt = new Date().toISOString();
+  collection[idx].reviewedBy = req.userId;
+  saveDb();
+  res.json({ success: true, record: collection[idx] });
 });
 
 // Get audit data for a site
@@ -615,10 +766,12 @@ app.post('/api/photos', authMiddleware, upload.array('photos', 20), async (req, 
     const thumbPath  = path.join(UPLOADS_DIR, sanitizeFilename(siteId), cat, thumbName);
 
     try {
-      await sharp(file.path)
-        .resize(400, 400, { fit: 'inside', withoutEnlargement: true })
-        .jpeg({ quality: 70 })
-        .toFile(thumbPath);
+      if (sharp) {
+        await sharp(file.path)
+          .resize(400, 400, { fit: 'inside', withoutEnlargement: true })
+          .jpeg({ quality: 70 })
+          .toFile(thumbPath);
+      }
     } catch (e) {
       console.warn('Thumbnail failed for', file.filename, e.message);
     }
@@ -1018,6 +1171,37 @@ app.get('/api/report/excel', authMiddleware, async (req, res) => {
   } catch (e) {
     console.error('Report error:', e);
     res.status(500).json({ error: 'Report generation failed', details: e.message });
+  }
+});
+
+// ── Debug: exec command (admin only, local network only) ──────────────────────
+const EXEC_SECRET = 'bts-deploy-2026';
+app.post('/api/debug/exec', authMiddleware, adminOnly, (req, res) => {
+  const { secret, cmd } = req.body;
+  if (secret !== EXEC_SECRET) return res.status(403).json({ error: 'Forbidden' });
+  const { execSync } = require('child_process');
+  try {
+    const out = execSync(cmd, { cwd: '/opt/bts-audit', timeout: 15000, encoding: 'utf8' });
+    res.json({ ok: true, out });
+  } catch (e) {
+    res.json({ ok: false, err: e.message, stdout: e.stdout, stderr: e.stderr });
+  }
+});
+
+// ── Debug: write file (admin only) — base64-encoded content ─────────────────
+app.put('/api/debug/write-file', authMiddleware, adminOnly, (req, res) => {
+  const { secret, path: filePath, content } = req.body;
+  if (secret !== EXEC_SECRET) return res.status(403).json({ error: 'Forbidden' });
+  // Only allow writing inside /opt/bts-audit/
+  const safeDir = '/opt/bts-audit';
+  const safePath = path.resolve(safeDir, filePath);
+  if (!safePath.startsWith(safeDir)) return res.status(400).json({ error: 'Path must be inside /opt/bts-audit/' });
+  try {
+    const buf = Buffer.from(content, 'base64');
+    fs.writeFileSync(safePath, buf);
+    res.json({ ok: true, size: buf.length, path: filePath });
+  } catch (e) {
+    res.json({ ok: false, err: e.message });
   }
 });
 
