@@ -193,11 +193,13 @@ try { sharp = require('sharp'); } catch(e) { sharp = null; console.warn('sharp n
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 const CATEGORIES  = ['ground', 'dcdb', 'tower', 'general'];
 
-function ensureSiteUploadDir(siteId, category) {
+function ensureSiteUploadDir(siteId, category, recordId) {
   const cat    = CATEGORIES.includes(category) ? category : 'general';
-  const siteDir = path.join(UPLOADS_DIR, sanitizeFilename(siteId), cat);
-  if (!fs.existsSync(siteDir)) fs.mkdirSync(siteDir, { recursive: true });
-  return siteDir;
+  const parts = [UPLOADS_DIR, sanitizeFilename(siteId), cat];
+  if (recordId) parts.push(recordId);
+  const dir = path.join(...parts);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
 }
 
 function sanitizeFilename(name) {
@@ -206,9 +208,10 @@ function sanitizeFilename(name) {
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const siteId  = req.body.siteId || 'unspecified';
-    const category = req.body.category || 'general';
-    cb(null, ensureSiteUploadDir(siteId, category));
+    const siteId   = req.body.siteId || 'unspecified';
+    const category  = req.body.category || req.body.auditType || 'general';
+    const recordId  = req.body.recordId || null;
+    cb(null, ensureSiteUploadDir(siteId, category, recordId));
   },
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
@@ -237,9 +240,10 @@ function filterByUserAndSite(arr, userId, siteId) {
   return arr.filter(x => x.userId === userId && x.siteId === siteId);
 }
 
-// Site photo URL builder
-function photoUrl(siteId, category, filename) {
-  return `/uploads/${sanitizeFilename(siteId)}/${category}/${filename}`;
+// Site photo URL builder — supports optional recordId subdirectory
+function photoUrl(siteId, category, filename, recordId) {
+  const base = `/uploads/${sanitizeFilename(siteId)}/${category}`;
+  return recordId ? `${base}/${recordId}/${filename}` : `${base}/${filename}`;
 }
 
 // ─── ROUTES ───────────────────────────────────────────────────────────────────
@@ -425,6 +429,82 @@ app.get('/api/users/engineers', authMiddleware, adminOnly, (req, res) => {
     id: u.id, name: u.name, email: u.email,
   }));
   res.json({ engineers });
+});
+
+// ── Get a single audit record by type and ID ──────────────────────────────────
+app.get('/api/audit/record/:type/:id', authMiddleware, (req, res) => {
+  const { type, id } = req.params;
+  const uid = req.userId;
+  let record = null;
+
+  if (type === 'ground') {
+    record = db.groundEquipment.find(e => e.id === id && (req.role === 'admin' || e.userId === uid));
+  } else if (type === 'dcdb') {
+    record = db.dcdbRecords.find(e => e.id === id && (req.role === 'admin' || e.userId === uid));
+  } else if (type === 'tower') {
+    record = db.towerEquipment.find(e => e.id === id && (req.role === 'admin' || e.userId === uid));
+  }
+
+  if (!record) return res.status(404).json({ error: 'Record not found' });
+  res.json({ record, type });
+});
+
+// ── Upload photo with recordId (audit endpoint) ──────────────────────────────
+app.post('/api/audit/upload-photo', authMiddleware, upload.single('photo'), async (req, res) => {
+  const { siteId, auditType, recordId, fieldName } = req.body;
+  if (!siteId || !req.file) return res.status(400).json({ error: 'siteId and photo are required' });
+
+  const site = db.sites.find(s => s.siteId === siteId);
+  if (!site) return res.status(404).json({ error: 'Site not found' });
+  if (req.role !== 'admin' && !(site.assignedUsers || []).includes(req.userId)) {
+    return res.status(403).json({ error: 'Not assigned to this site' });
+  }
+
+  const cat = CATEGORIES.includes(auditType) ? auditType : 'general';
+  const file = req.file;
+  const thumbName = `thumb_${file.filename}`;
+  const dirParts = [UPLOADS_DIR, sanitizeFilename(siteId), cat];
+  if (recordId) dirParts.push(recordId);
+  const dir = path.join(...dirParts);
+  const thumbPath = path.join(dir, thumbName);
+
+  if (sharp) {
+    try {
+      await sharp(file.path).resize(400, 400, { fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 70 }).toFile(thumbPath);
+    } catch (e) {
+      console.warn('Thumbnail failed for', file.filename, e.message);
+    }
+  }
+
+  const photo = {
+    id:         uuidv4(),
+    userId:     req.userId,
+    siteId,
+    category:    cat,
+    recordId:    recordId || null,
+    fieldName:   fieldName || null,
+    original:    photoUrl(siteId, cat, file.filename, recordId || null),
+    thumbnail:   photoUrl(siteId, cat, thumbName, recordId || null),
+    filename:    file.filename,
+    size:        file.size,
+    uploadedAt:  new Date().toISOString(),
+  };
+  db.photos.push(photo);
+  saveDb();
+  res.json({ success: true, photo });
+});
+
+// ── Get photos for a specific record ─────────────────────────────────────────
+app.get('/api/audit/photos', authMiddleware, (req, res) => {
+  const { siteId, recordId } = req.query;
+  if (!siteId) return res.status(400).json({ error: 'siteId is required' });
+
+  let photos = db.photos.filter(e =>
+    e.siteId === siteId && (req.role === 'admin' || e.userId === req.userId)
+  );
+  if (recordId) photos = photos.filter(p => p.recordId === recordId);
+  res.json({ photos, total: photos.length });
 });
 
 // ── Audit Sync (primary mobile endpoint — scoped to userId + siteId) ───────────
@@ -795,12 +875,13 @@ app.post('/api/photos', authMiddleware, upload.array('photos', 20), async (req, 
 });
 
 app.get('/api/photos', authMiddleware, (req, res) => {
-  const { siteId, category } = req.query;
+  const { siteId, category, recordId } = req.query;
   if (!siteId) return res.status(400).json({ error: 'siteId is required' });
   let photos = db.photos.filter(e =>
     e.siteId === siteId && (req.role === 'admin' || e.userId === req.userId)
   );
   if (category) photos = photos.filter(p => p.category === category);
+  if (recordId) photos = photos.filter(p => p.recordId === recordId);
   res.json({ photos, total: photos.length });
 });
 
