@@ -477,15 +477,19 @@ app.post('/api/audit/upload-photo', authMiddleware, upload.single('photo'), asyn
     }
   }
 
+  const originalUrl  = photoUrl(siteId, cat, file.filename, recordId || null);
+  const thumbUrl     = photoUrl(siteId, cat, thumbName, recordId || null);
   const photo = {
-    id:         uuidv4(),
-    userId:     req.userId,
+    id:          uuidv4(),
+    userId:      req.userId,
     siteId,
-    category:    cat,
-    recordId:    recordId || null,
-    fieldName:   fieldName || null,
-    original:    photoUrl(siteId, cat, file.filename, recordId || null),
-    thumbnail:   photoUrl(siteId, cat, thumbName, recordId || null),
+    category:     cat,
+    recordId:     recordId || null,
+    fieldName:    fieldName || null,
+    original:     originalUrl,
+    thumbnail:    thumbUrl,
+    serverUrl:   originalUrl,
+    thumbnailUrl: thumbUrl,
     filename:    file.filename,
     size:        file.size,
     uploadedAt:  new Date().toISOString(),
@@ -793,6 +797,26 @@ app.route('/api/dcdb/:id')
     res.json({ success: true });
   });
 
+// ── Equipment (generic alias for ground records) ──────────────────────────────
+// Redirects to groundEquipment — used by Android app legacy endpoints
+app.route('/api/equipment')
+  .get(authMiddleware, (req, res) => {
+    const { siteId } = req.query;
+    if (!siteId) return res.status(400).json({ error: 'siteId is required' });
+    const records = db.groundEquipment.filter(e =>
+      e.siteId === siteId && (req.role === 'admin' || e.userId === req.userId) && !e._isSiteInfo
+    );
+    res.json({ records, total: records.length });
+  })
+  .post(authMiddleware, (req, res) => {
+    const { siteId } = req.body;
+    if (!siteId) return res.status(400).json({ error: 'siteId required' });
+    const item = { id: uuidv4(), userId: req.userId, siteId, ...req.body, createdAt: new Date().toISOString() };
+    db.groundEquipment.push(item);
+    saveDb();
+    res.json({ success: true, record: item });
+  });
+
 // ── Tower Equipment ───────────────────────────────────────────────────────────
 app.route('/api/tower')
   .get(authMiddleware, (req, res) => {
@@ -856,13 +880,17 @@ app.post('/api/photos', authMiddleware, upload.array('photos', 20), async (req, 
       console.warn('Thumbnail failed for', file.filename, e.message);
     }
 
+    const originalUrl = photoUrl(siteId, cat, file.filename);
+    const thumbUrl    = photoUrl(siteId, cat, thumbName);
     const photo = {
-      id:         uuidv4(),
-      userId:    req.userId,
+      id:          uuidv4(),
+      userId:     req.userId,
       siteId,
-      category:   cat,
-      original:   photoUrl(siteId, cat, file.filename),
-      thumbnail:  photoUrl(siteId, cat, thumbName),
+      category:    cat,
+      original:    originalUrl,
+      thumbnail:   thumbUrl,
+      serverUrl:  originalUrl,
+      thumbnailUrl: thumbUrl,
       filename:   file.filename,
       size:       file.size,
       uploadedAt: new Date().toISOString(),
