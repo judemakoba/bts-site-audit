@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>BTS Audit — Admin Dashboard</title>
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=2" />
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%2310b981'/><text x='50%25' y='55%25' dominant-baseline='middle' text-anchor='middle' font-size='18' fill='white'>📡</text></svg>" />
 </head>
 <body>
@@ -361,6 +361,37 @@
   </div>
 </div>
 
-<script src="app.js?v=4" defer></script>
+<!-- Photo Lightbox -->
+<div id="photo-lightbox" class="hidden" onclick="closeLightbox()">
+  <button class="lb-close" onclick="event.stopPropagation(); closeLightbox()">&#x2715;</button>
+  <div class="lb-inner" onclick="event.stopPropagation()">
+    <img id="lb-img" src="" alt="Photo" />
+    <div class="lb-caption-bar">
+      <div class="lb-caption" id="lb-caption"></div>
+      <div class="lb-controls">
+        <button class="lb-btn" onclick="event.stopPropagation(); rotateLb(-90)">&#x21BA; Rotate L</button>
+        <button class="lb-btn" onclick="event.stopPropagation(); rotateLb(90)">&#x21BB; Rotate R</button>
+        <a class="lb-btn lb-btn-download" id="lb-download" href="" download target="_blank">&#x2B73; Download</a>
+      </div>
+    </div>
+  </div>
+  <div class="lb-hint">Press Esc to close &nbsp;·&nbsp; &#x2190; &#x2192; to rotate</div>
+</div>
+
+<!-- Record Detail Modal -->
+<div id="record-detail-modal" class="record-detail-modal hidden">
+  <div class="record-detail-inner">
+    <div class="detail-header">
+      <div>
+        <h3 id="detail-title">Ground Equipment</h3>
+        <div class="meta" id="detail-meta"></div>
+      </div>
+      <button class="detail-close" onclick="closeRecordDetail()">&#x2715; Close</button>
+    </div>
+    <div class="detail-body" id="detail-body"></div>
+  </div>
+</div>
+
+<script src="app.js?v=6" defer></script>
 </body>
 </html>

@@ -545,6 +545,7 @@ function renderReviewPending() {
               </div>
             </div>
             <div class="flex-row" style="gap:0.4rem;flex-shrink:0">
+              <button class="btn-secondary btn-sm" onclick="viewRecord('${s.type}','${r.id}')">&#x1F441; View</button>
               <button class="btn-success btn-sm" data-review-action="approve" data-type="${s.type}" data-id="${r.id}">✅ Approve</button>
               <button class="btn-danger btn-sm" data-review-action="reject" data-type="${s.type}" data-id="${r.id}">❌ Reject</button>
             </div>
@@ -709,6 +710,7 @@ function renderDrafts() {
                 </div>
               </div>
               <div class="flex-row" style="gap:0.4rem;flex-shrink:0">
+                <button class="btn-secondary btn-sm" onclick="viewRecord('${r._type}','${r.id}')">&#x1F441; View</button>
                 <button class="btn-sm btn-primary" disabled style="opacity:0.5" title="Engineer must submit this record">Awaiting Submit</button>
               </div>
             </div>
@@ -718,6 +720,274 @@ function renderDrafts() {
       </div>
     `;
   }).join('');
+}
+
+// ── Record Detail Modal ──────────────────────────────────────────────────
+let currentRecord = null; // { record, type }
+
+async function viewRecord(type, id) {
+  // Find record in reviewData or draftsData
+  const findIn = (col) => col.find(r => r.id === id);
+  const reviewSources = [reviewData.ground, reviewData.dcdb, reviewData.tower];
+  const draftSources  = [draftsData.drafts.ground, draftsData.drafts.dcdb, draftsData.drafts.tower,
+                          draftsData.inProgress.ground, draftsData.inProgress.dcdb, draftsData.inProgress.tower];
+  let record = null;
+  for (const src of [...reviewSources, ...draftSources]) {
+    record = findIn(src || []);
+    if (record) break;
+  }
+  if (!record) { toast('Record not found', 'error'); return; }
+
+  currentRecord = { record, type };
+  const modal = document.getElementById('record-detail-modal');
+  document.getElementById('detail-title').textContent =
+    (type === 'ground' ? 'Ground Equipment' : type === 'dcdb' ? 'DCDB Record' : 'Tower Equipment') + ' — Detail';
+  document.getElementById('detail-meta').textContent =
+    `${esc(record.site?.siteName || record.siteId || 'Unknown')} | ${esc(record.siteId)} | ${esc(record.user?.name || 'Unknown')} | ${fmtDate(record.updatedAt || record.createdAt)}`;
+  document.getElementById('detail-body').innerHTML = renderRecordDetail(record, type);
+  modal.classList.remove('hidden');
+}
+
+function closeRecordDetail() {
+  document.getElementById('record-detail-modal').classList.add('hidden');
+  currentRecord = null;
+}
+
+function renderRecordDetail(r, type) {
+  if (type === 'ground') return renderGroundDetail(r);
+  if (type === 'dcdb')  return renderDcdbDetail(r);
+  if (type === 'tower')  return renderTowerDetail(r);
+  return '<p style="color:var(--text-secondary)">Unknown record type.</p>';
+}
+
+// ── Ground Equipment Detail ───────────────────────────────────────────────
+function renderGroundDetail(r) {
+  const s = r;
+  return `
+    <div class="detail-section">
+      <div class="detail-section-title ground">&#x1F4CD; Site &amp; Survey</div>
+      <div class="detail-fields">
+        ${f('Site Name',       s.site?.siteName || s.siteId)}
+        ${f('ATC ID',          s.atc_id)}
+        ${f('Survey Date',      fmtDate(s.survey_date))}
+        ${f('Technician',      s.technician_name)}
+        ${f('Contractor',       s.contractor_name)}
+        ${f('Tower Type',       s.tower_type)}
+        ${f('Tower Height',     s.tower_height ? s.tower_height + ' m' : '')}
+        ${f('Building Height',   s.building_height ? s.building_height + ' m' : '')}
+        ${f('Total Height',     s.total_height ? s.total_height + ' m' : '')}
+        ${f('Indoor / Outdoor', s.site_indoor_outdoor)}
+        ${f('No. of Tenants',   s.no_of_tenants)}
+        ${f('Other Tenants',    s.other_tenants)}
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-title ground">&#x1F4F1; GPS Coordinates</div>
+      <div class="detail-fields">
+        ${f('Latitude',   s.latitude)}
+        ${f('Longitude',  s.longitude)}
+        ${f('Altitude',   s.altitude)}
+        ${f('Accuracy',   s.gps_accuracy)}
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-title ground">&#x26A1; Power Infrastructure</div>
+      <div class="detail-fields">
+        ${b('Grid Power',           s.has_grid)}
+        ${b('DG (Diesel Generator)', s.has_dg)}
+        ${b('Solar',               s.has_solar)}
+        ${f('Grid Distance (m)',   s.grid_distance_to_3phase)}
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-title ground">&#x1F5A5; RRU &amp; Cabinets</div>
+      <div class="detail-fields">
+        ${b('Guard at Site',        s.guard_at_site)}
+        ${f('RRU Type',            s.rru_type)}
+        ${f('RRU Count',           s.rru_count)}
+        ${f('Cabinet Types',       s.cabinet_types)}
+        ${f('Cabinet Count',       s.cabinet_count)}
+        ${b('Equipment Labelled',   s.equipment_labelled)}
+        ${f('Cabinet Comments',    s.cabinet_comments)}
+        ${f('BTS Cabinet Dims (L×W×H)', s.cabinet_dimensions_lxwxh)}
+        ${f('Active IDU Types',    s.active_idu_types)}
+        ${f('Non-Active IDU Types', s.non_active_idu_types)}
+        ${f('Non-Active IDU Count', s.non_active_idu_count)}
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-title ground">&#x1F4CF; Slab</div>
+      <div class="detail-fields">
+        ${f('Slab Dimensions (L×W m)', s.slab_dimensions)}
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-title ground">&#x26A0; Redundant Equipment</div>
+      <div class="detail-fields">
+        ${f('Redundant Count', s.redundant_equipment_count)}
+        ${f('Redundant Item',  s.redundant_item_name)}
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-title ground">&#x1F4E7; Media &amp; Connectivity</div>
+      <div class="detail-fields">
+        ${b('On Fiber (TRM Media)', s.trm_media_fiber)}
+        ${f('Overall Remarks',     s.overall_remarks)}
+      </div>
+    </div>
+
+    ${renderPhotosSection(s)}
+  `;
+}
+
+// ── DCDB Detail ─────────────────────────────────────────────────────────
+function renderDcdbDetail(r) {
+  return `
+    <div class="detail-section">
+      <div class="detail-section-title dcdb">&#x1F4CD; Site &amp; Survey</div>
+      <div class="detail-fields">
+        ${f('Site Name',    r.site?.siteName || r.siteId)}
+        ${f('Site ID',     r.siteId)}
+        ${f('Survey Date',  fmtDate(r.createdAt || r.updatedAt))}
+        ${f('Engineer',     r.user?.name || '—')}
+      </div>
+    </div>
+    <div class="detail-section">
+      <div class="detail-section-title dcdb">&#x26A1; DCDB Details</div>
+      <div class="detail-fields">
+        ${f('DCDB Type',            r.dcdb_type)}
+        ${f('Capacity',              r.dcdb_capacity)}
+        ${f('Cables Condition',      r.cables_condition)}
+        ${f('Surge Protection',      r.surge_protection)}
+        ${f('Cable Entry Sealed',    r.cable_entry_sealed)}
+        ${f('Notes',                r.notes)}
+      </div>
+    </div>
+  `;
+}
+
+// ── Tower Detail ─────────────────────────────────────────────────────────
+function renderTowerDetail(r) {
+  return `
+    <div class="detail-section">
+      <div class="detail-section-title tower">&#x1F4CD; Site &amp; Survey</div>
+      <div class="detail-fields">
+        ${f('Site Name',    r.site?.siteName || r.siteId)}
+        ${f('Site ID',     r.siteId)}
+        ${f('Survey Date',  fmtDate(r.createdAt || r.updatedAt))}
+        ${f('Engineer',     r.user?.name || '—')}
+      </div>
+    </div>
+    <div class="detail-section">
+      <div class="detail-section-title tower">&#x26E8; Tower Details</div>
+      <div class="detail-fields">
+        ${f('Tower Type',             r.tower_type)}
+        ${f('Tower Height',           r.tower_height ? r.tower_height + ' m' : '')}
+        ${f('Structural Integrity',    r.structural_integrity)}
+        ${f('Rust / Corrosion',      r.rust_corrosion)}
+        ${f('Bolt Condition',         r.bolt_condition)}
+        ${f('Lightning Rod',          r.lightning_rod)}
+        ${f('Climb Safety',           r.climb_safety)}
+        ${f('Antenna Mounting',       r.antenna_mounting)}
+        ${f('Notes',                 r.notes)}
+      </div>
+    </div>
+  `;
+}
+
+// ── Photos Section ───────────────────────────────────────────────────────
+function renderPhotosSection(r) {
+  const photos = [];
+  const pushPhoto = (label, path) => { if (path) photos.push({ label, path }); };
+  const pushList  = (label, list) => { if (list) list.split('|').filter(Boolean).forEach(p => photos.push({ label, path: p })); };
+
+  pushPhoto('Site Name Plate',     r.site_name_plate_photo);
+  pushPhoto('GPS Screenshot',       r.gps_screenshot);
+  pushPhoto('Site Photo',           r.site_photo);
+  pushPhoto('RRU Photo',            r.rru_photo);
+  pushList ('RRU Photos',          r.rru_photos);
+  pushPhoto('Cabinet Photo',        r.cabinet_photo);
+  pushList ('Cabinet Photos',       r.cabinet_photos);
+  pushPhoto('Cabinet Dim Photo',    r.cabinet_dim_photo);
+  pushList ('Cabinet Dim Photos',   r.cabinet_dimension_photos);
+  pushPhoto('Non-Active IDU Photo',r.non_active_idu_photo);
+  pushList ('Non-Active IDU Photos', r.non_active_idu_photos);
+  pushPhoto('Slab Photo',           r.slab_photo);
+  pushList ('Slab Photos',          r.slab_photos);
+  pushPhoto('Redundant Photo',      r.redundant_photo);
+  pushList ('Redundant Photos',     r.redundant_photos);
+
+  if (!photos.length) {
+    return `<div class="detail-section">
+      <div class="detail-section-title ground">&#x1F4F7; Photos</div>
+      <div class="detail-fields"><p class="detail-no-photo">No photos captured.</p></div>
+    </div>`;
+  }
+
+  const thumbs = photos.map(({ label, path }) => {
+    const url = path.startsWith('http') ? path : API + path;
+    return `<div class="detail-photo-thumb" onclick="openLightbox('${esc(url)}','${esc(label)}')" title="${esc(label)}">
+      <img src="${esc(url)}" alt="${esc(label)}" loading="lazy" onerror="this.parentElement.innerHTML='<div style=\\'width:80px;height:80px;display:flex;align-items:center;justify-content:center;background:#f1f5f9;color:#94a3b8;font-size:11px;text-align:center;padding:4px\\'>No preview</div>'" />
+    </div>`;
+  }).join('');
+
+  return `<div class="detail-section">
+    <div class="detail-section-title ground">&#x1F4F7; Photos (${photos.length}) — tap to enlarge</div>
+    <div class="detail-photos">
+      <div class="detail-photo-grid">${thumbs}</div>
+    </div>
+  </div>`;
+}
+
+// ── Field helpers ────────────────────────────────────────────────────────
+function f(label, val) {
+  const v = val == null || val === '' || val === 'undefined' ? null : val;
+  if (v == null) return `<div class="detail-field"><span class="detail-field-lbl">${label}</span><span class="detail-field-val missing">—</span></div>`;
+  return `<div class="detail-field"><span class="detail-field-lbl">${label}</span><span class="detail-field-val">${esc(String(v))}</span></div>`;
+}
+function b(label, val) {
+  const v = String(val);
+  if (v === 'true' || v === '1' || v === 'true') return `<div class="detail-field"><span class="detail-field-lbl">${label}</span><span class="detail-field-val bool-yes">Yes &#x2705;</span></div>`;
+  if (v === 'false' || v === '0' || v === 'false') return `<div class="detail-field"><span class="detail-field-lbl">${label}</span><span class="detail-field-val bool-no">No &#x274C;</span></div>`;
+  return `<div class="detail-field"><span class="detail-field-lbl">${label}</span><span class="detail-field-val neutral">${esc(v)}</span></div>`;
+}
+
+// ── Photo Lightbox ─────────────────────────────────────────────────────
+let lbRotation = 0;
+let lbCurrentUrl = '';
+
+function openLightbox(url, caption) {
+  lbCurrentUrl = url;
+  lbRotation = 0;
+  const img = document.getElementById('lb-img');
+  img.src = url;
+  img.style.transform = '';
+  document.getElementById('lb-caption').textContent = caption || '';
+  const dl = document.getElementById('lb-download');
+  dl.href = url;
+  dl.download = caption ? caption.replace(/[^a-z0-9]/gi, '_') + '.jpg' : 'photo.jpg';
+  document.getElementById('photo-lightbox').classList.remove('hidden');
+  document.addEventListener('keydown', lbKeyHandler);
+}
+function closeLightbox() {
+  document.getElementById('photo-lightbox').classList.add('hidden');
+  lbRotation = 0;
+  document.removeEventListener('keydown', lbKeyHandler);
+}
+function rotateLb(deg) {
+  lbRotation = (lbRotation + deg) % 360;
+  document.getElementById('lb-img').style.transform = `rotate(${lbRotation}deg)`;
+}
+function lbKeyHandler(e) {
+  if (e.key === 'Escape') closeLightbox();
+  if (e.key === 'ArrowLeft')  rotateLb(-90);
+  if (e.key === 'ArrowRight') rotateLb(90);
 }
 
 // ── Populate assigned engineers select (for site modal) ─────────────────────
