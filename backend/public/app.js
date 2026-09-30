@@ -931,7 +931,7 @@ function renderPhotosSection(r) {
   }
 
   const thumbs = photos.map(({ label, path }) => {
-    const url = path.startsWith('http') ? path : API + path;
+    const url = path.startsWith('http') ? path : path;
     return `<div class="detail-photo-thumb" onclick="openLightbox('${esc(url)}','${esc(label)}')" title="${esc(label)}">
       <img src="${esc(url)}" alt="${esc(label)}" loading="lazy" onerror="this.parentElement.innerHTML='<div style=\\'width:80px;height:80px;display:flex;align-items:center;justify-content:center;background:#f1f5f9;color:#94a3b8;font-size:11px;text-align:center;padding:4px\\'>No preview</div>'" />
     </div>`;
