@@ -648,6 +648,22 @@ app.get('/api/audit/drafts', authMiddleware, adminOnly, (req, res) => {
   res.json(result);
 });
 
+// ── Admin: delete a draft record ───────────────────────────────────────────
+app.delete('/api/audit/drafts/:type/:id', authMiddleware, adminOnly, (req, res) => {
+  const { type, id } = req.params;
+  // Normalise ground_equipment → ground (both live in the same collection)
+  const colKey = (type === 'ground' || type === 'ground_equipment') ? 'groundEquipment'
+    : type === 'dcdb' ? 'dcdbRecords'
+    : type === 'tower' ? 'towerEquipment' : null;
+  if (!colKey) return res.status(400).json({ error: 'Invalid type' });
+  const col = db[colKey];
+  const idx = col.findIndex(e => e.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'Draft not found' });
+  col.splice(idx, 1);
+  saveDb();
+  res.json({ success: true, message: 'Draft deleted' });
+});
+
 // ── Admin: list in-progress records (no recognised status) ──────────────
 app.get('/api/audit/in-progress', authMiddleware, adminOnly, (req, res) => {
   const { type } = req.query;
