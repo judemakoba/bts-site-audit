@@ -1002,6 +1002,11 @@ function esc(s) {
 }
 
 function fmtDate(d) {
+  if (!d) return '—';
+  if (typeof d === 'string') {
+    // Already a string (ISO or YYYYMMDD) — return as-is
+    return d.slice(0, 10).replace(/-/g, '');
+  }
   return d.toISOString().slice(0, 10).replace(/-/g, '');
 }
 
