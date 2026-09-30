@@ -303,13 +303,14 @@ app.post('/api/auth/login', authLimiter, (req, res) => {
       id:    user.id,
       name:  user.name,
       email: user.email,
+      phone: user.phone || '',
       role:  user.role,
     },
   });
 });
 
 app.post('/api/auth/register', authMiddleware, adminOnly, (req, res) => {
-  const { name, email, password, role = 'engineer' } = req.body;
+  const { name, email, password, role = 'engineer', phone } = req.body;
   if (!name || !email || !password) return res.status(400).json({ error: 'Name, email and password required' });
   if (db.users.find(u => u.email.toLowerCase() === email.toLowerCase())) {
     return res.status(409).json({ error: 'Email already registered' });
@@ -319,19 +320,20 @@ app.post('/api/auth/register', authMiddleware, adminOnly, (req, res) => {
     id:       uuidv4(),
     name:     name.trim(),
     email:    email.toLowerCase().trim(),
+    phone:    phone || '',
     password: bcrypt.hashSync(password, 10),
     role,
     createdAt: new Date().toISOString(),
   };
   db.users.push(user);
   saveDb();
-  res.json({ success: true, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+  res.json({ success: true, user: { id: user.id, name: user.name, email: user.email, phone: user.phone, role: user.role } });
 });
 
 app.get('/api/auth/me', authMiddleware, (req, res) => {
   const user = findById(db.users, req.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
-  res.json({ id: user.id, name: user.name, email: user.email, role: user.role });
+  res.json({ id: user.id, name: user.name, email: user.email, phone: user.phone || '', role: user.role });
 });
 
 // Admin: list all users (for engineer management)

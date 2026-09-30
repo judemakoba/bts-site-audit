@@ -157,13 +157,14 @@ function setupForms() {
     const name     = document.getElementById('eng-name').value.trim();
     const email    = document.getElementById('eng-email').value.trim();
     const password = document.getElementById('eng-password').value;
+    const phone    = document.getElementById('eng-phone')?.value.trim() || '';
     const errEl = document.getElementById('eng-modal-error');
     errEl.classList.add('hidden');
     try {
       const res = await fetch(`${API}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ name, email, password, role: 'engineer' }),
+        body: JSON.stringify({ name, email, password, phone, role: 'engineer' }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Registration failed');
