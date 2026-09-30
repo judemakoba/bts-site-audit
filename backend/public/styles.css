@@ -328,6 +328,18 @@ h3 { font-size: 1rem; font-weight: 600; }
   margin-bottom: 0.75rem;
   overflow: hidden;
 }
+/* Clickable draft card */
+.draft-card {
+  cursor: pointer;
+  transition: box-shadow .15s, border-color .15s, transform .1s;
+}
+.draft-card:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,.1);
+  border-color: var(--primary);
+}
+.draft-card:active {
+  transform: scale(.99);
+}
 .review-card-header {
   display: flex;
   align-items: flex-start;

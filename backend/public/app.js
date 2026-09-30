@@ -695,7 +695,7 @@ function renderDrafts() {
           <span style="font-weight:400;font-size:13px;color:var(--text-secondary)"> — ${records.length} record${records.length !== 1 ? 's' : ''}</span>
         </h3>
         ${records.length ? records.map(r => `
-          <div class="review-card" style="margin-bottom:0.75rem">
+          <div class="review-card draft-card" onclick="viewRecord('${r._type}','${r.id}')">
             <div class="review-card-header">
               <div>
                 <strong style="font-size:14px">${esc(r.site?.siteName || r.siteId || 'Unknown Site')}</strong>
@@ -709,8 +709,8 @@ function renderDrafts() {
                   Status: <span class="status-badge status-pending">${esc(r.status || 'in-progress')}</span>
                 </div>
               </div>
-              <div class="flex-row" style="gap:0.4rem;flex-shrink:0">
-                <button class="btn-secondary btn-sm" onclick="viewRecord('${r._type}','${r.id}')">&#x1F441; View</button>
+              <div class="flex-row" style="gap:0.4rem;flex-shrink:0;pointer-events:none">
+                <span style="font-size:11px;color:var(--text-secondary);align-self:center;margin-right:6px">Tap to view &#x1F441;</span>
                 <button class="btn-sm btn-primary" disabled style="opacity:0.5" title="Engineer must submit this record">Awaiting Submit</button>
               </div>
             </div>
