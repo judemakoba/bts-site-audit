@@ -560,12 +560,69 @@ app.post('/api/audit/sync', authMiddleware, (req, res) => {
     dcdb.forEach(item => {
       item.id = item.id || uuidv4();
       const idx = db.dcdbRecords.findIndex(e => e.id === item.id && e.userId === uid && e.siteId === siteId);
+      // Denormalize flat fields from new nested DCDB app structure for dashboard/Excel
+      const flat = {
+        // Legacy flat fields (kept for compatibility)
+        dcdb_type: item.dcdb_type || null,
+        dcdb_capacity: item.dcdb_capacity || null,
+        cables_condition: item.cables_condition || null,
+        surge_protection: item.surge_protection || null,
+        cable_entry_sealed: item.cable_entry_sealed || null,
+        notes: item.notes || null,
+        // New DCDB app fields
+        grid_distance_to_3phase: item.grid_distance_to_3phase || null,
+        // Non-priority
+        np_cable_size_dcdb: item.np_cable_size_dcdb || null,
+        np_breaker1_mcb: item.np_breaker1_mcb || null,
+        np_dcdus: item.np_dcdus || null,
+        np_section_photo: item.np_section_photo || null,
+        np_load_measurement: item.np_load_measurement || null,
+        np_load_photo: item.np_load_photo || null,
+        np_load_measured_time: item.np_load_measured_time || null,
+        // Priority
+        p_cable_size_dcdb: item.p_cable_size_dcdb || null,
+        p_breaker1_mcb: item.p_breaker1_mcb || null,
+        p_dcdus: item.p_dcdus || null,
+        p_section_photo: item.p_section_photo || null,
+        p_load_measurement: item.p_load_measurement || null,
+        p_load_photo: item.p_load_photo || null,
+        p_load_measured_time: item.p_load_measured_time || null,
+        // DCDU connections
+        np_dcdu_connections: item.np_dcdu_connections || null,
+        p_dcdu_connections: item.p_dcdu_connections || null,
+        total_dcdu_count: item.total_dcdu_count || null,
+        // RRU
+        rru_count: item.rru_count || null,
+        rru_power_cable_count: item.rru_power_cable_count || null,
+        rru_power_cable_missing: item.rru_power_cable_missing || null,
+        rru_power_cable_length_per_run: item.rru_power_cable_length_per_run || null,
+        rru_power_cable_total_missing: item.rru_power_cable_total_missing || null,
+        rru_earthing_cable_count: item.rru_earthing_cable_count || null,
+        rru_earthing_cable_missing: item.rru_earthing_cable_missing || null,
+        rru_earthing_cable_length_per_run: item.rru_earthing_cable_length_per_run || null,
+        // AAU
+        aau_count: item.aau_count || null,
+        aau_power_cable_count: item.aau_power_cable_count || null,
+        aau_power_cable_missing: item.aau_power_cable_missing || null,
+        aau_power_cable_length_per_run: item.aau_power_cable_length_per_run || null,
+        aau_power_cable_total_missing: item.aau_power_cable_total_missing || null,
+        aau_earthing_cable_count: item.aau_earthing_cable_count || null,
+        aau_earthing_cable_missing: item.aau_earthing_cable_missing || null,
+        aau_earthing_cable_length_per_run: item.aau_earthing_cable_length_per_run || null,
+        // BTS Earthing
+        bts_earthing_total: item.bts_earthing_total || null,
+        bts_earthing_cable_count: item.bts_earthing_cable_count || null,
+        bts_earthing_cable_missing: item.bts_earthing_cable_missing || null,
+        bts_earthing_cable_length_per_run: item.bts_earthing_cable_length_per_run || null,
+        bts_earthing_connection: item.bts_earthing_connection || null,
+        bts_earthing_total_missing: item.bts_earthing_total_missing || null,
+      };
       if (idx >= 0) {
         const existing = db.dcdbRecords[idx];
         const newStatus = (existing.status === 'rejected' && !isDraft) ? 'submitted' : status;
-        db.dcdbRecords[idx] = { ...existing, ...item, userId: uid, siteId, updatedAt: now, syncedAt: now, status: newStatus, ...rejectionFields };
+        db.dcdbRecords[idx] = { ...existing, ...item, ...flat, userId: uid, siteId, updatedAt: now, syncedAt: now, status: newStatus, ...rejectionFields };
       } else {
-        db.dcdbRecords.push({ ...item, id: item.id, userId: uid, siteId, createdAt: now, updatedAt: now, syncedAt: now, status, ...rejectionFields });
+        db.dcdbRecords.push({ ...item, ...flat, id: item.id, userId: uid, siteId, createdAt: now, updatedAt: now, syncedAt: now, status, ...rejectionFields });
       }
     });
   }
@@ -575,12 +632,52 @@ app.post('/api/audit/sync', authMiddleware, (req, res) => {
     tower.forEach(item => {
       item.id = item.id || uuidv4();
       const idx = db.towerEquipment.findIndex(e => e.id === item.id && e.userId === uid && e.siteId === siteId);
+      // Denormalize flat fields from new nested antenna/RRU structure for dashboard/Excel
+      const firstAnt = Array.isArray(item.antennas) && item.antennas.length > 0 ? item.antennas[0] : {};
+      const firstRru = Array.isArray(item.rrus) && item.rrus.length > 0 ? item.rrus[0] : {};
+      const flat = {
+        // Legacy flat fields (kept for compatibility)
+        tower_type: item.tower_type || null,
+        tower_height: item.tower_height || null,
+        structural_integrity: item.structural_integrity || null,
+        rust_corrosion: item.rust_corrosion || null,
+        bolt_condition: item.bolt_condition || null,
+        lightning_rod: item.lightning_rod || null,
+        climb_safety: item.climb_safety || null,
+        antenna_mounting: item.antenna_mounting || null,
+        notes: item.notes || null,
+        // New Tower app fields — flattened first entry for quick dashboard view
+        antenna_type: firstAnt.equipment_type || null,
+        antenna_manufacturer: firstAnt.manufacturer || null,
+        antenna_model: firstAnt.model_number || null,
+        antenna_tenant: firstAnt.tenant_owner || null,
+        antenna_sector: firstAnt.sector || null,
+        antenna_azimuth: firstAnt.azimuth || null,
+        antenna_height: firstAnt.height_to_centre || null,
+        antenna_length: firstAnt.length_dia_mm || null,
+        antenna_width: firstAnt.width_mm || null,
+        antenna_height_mm: firstAnt.height_mm || null,
+        antenna_active: firstAnt.active_inactive || null,
+        antenna_labelled: firstAnt.equipment_labelling || null,
+        antenna_count: Array.isArray(item.antennas) ? item.antennas.length : 0,
+        rru_type: firstRru.equipment_type || null,
+        rru_manufacturer: firstRru.manufacturer || null,
+        rru_model: firstRru.model_number || null,
+        rru_tenant: firstRru.tenant_owner || null,
+        rru_sector: firstRru.sector || null,
+        rru_active: firstRru.active_inactive || null,
+        rru_labelled: firstRru.equipment_labelling || null,
+        rru_count: Array.isArray(item.rrus) ? item.rrus.length : 0,
+        // Nested data preserved as-is for Excel/report detail
+        _antennas_json: JSON.stringify(item.antennas || []),
+        _rrus_json: JSON.stringify(item.rrus || []),
+      };
       if (idx >= 0) {
         const existing = db.towerEquipment[idx];
         const newStatus = (existing.status === 'rejected' && !isDraft) ? 'submitted' : status;
-        db.towerEquipment[idx] = { ...existing, ...item, userId: uid, siteId, updatedAt: now, syncedAt: now, status: newStatus, ...rejectionFields };
+        db.towerEquipment[idx] = { ...existing, ...item, ...flat, userId: uid, siteId, updatedAt: now, syncedAt: now, status: newStatus, ...rejectionFields };
       } else {
-        db.towerEquipment.push({ ...item, id: item.id, userId: uid, siteId, createdAt: now, updatedAt: now, syncedAt: now, status, ...rejectionFields });
+        db.towerEquipment.push({ ...item, ...flat, id: item.id, userId: uid, siteId, createdAt: now, updatedAt: now, syncedAt: now, status, ...rejectionFields });
       }
     });
   }
