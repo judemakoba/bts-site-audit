@@ -726,6 +726,23 @@ function renderDrafts() {
 // ── Record Detail Modal ──────────────────────────────────────────────────
 let currentRecord = null; // { record, type }
 
+// Fetch photos for a specific record (used for tower antenna/RRU photo rendering)
+async function fetchPhotosForRecord(siteId, recordId) {
+  try {
+    const res = await fetch(`${API}/audit/photos?siteId=${encodeURIComponent(siteId)}&recordId=${encodeURIComponent(recordId)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return {};
+    const data = await res.json();
+    // Return a map: fieldName -> photo object
+    const map = {};
+    (data.photos || []).forEach(p => { if (p.fieldName) map[p.fieldName] = p; });
+    return map;
+  } catch(e) {
+    return {};
+  }
+}
+
 async function viewRecord(type, id) {
   // Find record in reviewData or draftsData
   const findIn = (col) => col.find(r => r.id === id);
@@ -739,13 +756,19 @@ async function viewRecord(type, id) {
   }
   if (!record) { toast('Record not found', 'error'); return; }
 
+  // For tower records, fetch photos from photos table to resolve dynamic field names
+  let towerPhotos = {};
+  if (type === 'tower' && record.id) {
+    towerPhotos = await fetchPhotosForRecord(record.siteId, record.id);
+  }
+
   currentRecord = { record, type };
   const modal = document.getElementById('record-detail-modal');
   document.getElementById('detail-title').textContent =
     (type === 'ground' ? 'Ground Equipment' : type === 'dcdb' ? 'DCDB Record' : 'Tower Equipment') + ' — Detail';
   document.getElementById('detail-meta').textContent =
     `${esc(record.site?.siteName || record.siteId || 'Unknown')} | ${esc(record.siteId)} | ${esc(record.user?.name || 'Unknown')} | ${fmtDate(record.updatedAt || record.createdAt)}`;
-  document.getElementById('detail-body').innerHTML = renderRecordDetail(record, type);
+  document.getElementById('detail-body').innerHTML = renderRecordDetail(record, type, towerPhotos);
   modal.classList.remove('hidden');
 }
 
@@ -754,10 +777,10 @@ function closeRecordDetail() {
   currentRecord = null;
 }
 
-function renderRecordDetail(r, type) {
+function renderRecordDetail(r, type, towerPhotos = {}) {
   if (type === 'ground') return renderGroundDetail(r);
   if (type === 'dcdb')  return renderDcdbDetail(r);
-  if (type === 'tower')  return renderTowerDetail(r);
+  if (type === 'tower')  return renderTowerDetail(r, towerPhotos);
   return '<p style="color:var(--text-secondary)">Unknown record type.</p>';
 }
 
@@ -849,12 +872,35 @@ function renderGroundDetail(r) {
 
 // ── DCDB Detail ─────────────────────────────────────────────────────────
 function renderDcdbDetail(r) {
-  const npConns = r.np_dcdu_connections
-    ? r.np_dcdu_connections.split(';').filter(Boolean).map(c => `<div style="font-size:12px;margin:2px 0">${esc(c)}</div>`).join('')
-    : '';
-  const pConns = r.p_dcdu_connections
-    ? r.p_dcdu_connections.split(';').filter(Boolean).map(c => `<div style="font-size:12px;margin:2px 0">${esc(c)}</div>`).join('')
-    : '';
+  // Parse DCDU slots: "Label:CableSizemm²:BreakerRatingA;..." → display each on its own line
+  function renderDcduSlots(raw) {
+    if (!raw) return '';
+    return raw.split(';').filter(Boolean).map(slot => {
+      const parts = slot.split(':');
+      const label = parts[0] || '';
+      const cable = parts[1] || '';
+      const breaker = parts[2] || '';
+      return `<div style="font-size:12px;margin:2px 0">
+        <strong>${esc(label)}</strong>: ${esc(cable)}${cable ? 'mm²' : ''}${cable && breaker ? ' / ' : ''}${esc(breaker)}${breaker ? 'A' : ''}
+      </div>`;
+    }).join('');
+  }
+
+  // Parse DCDU connections: "label|url_or_empty;label|url;..." → render label + optional photo
+  function renderConns(raw) {
+    if (!raw) return '';
+    return raw.split(';').filter(Boolean).map(c => {
+      const parts = c.split('|');
+      const label = parts[0] || '';
+      const url = parts[1] || '';
+      const photoHtml = url ? ` <a href="${esc(url)}" target="_blank" style="font-size:11px">&#x1F4F7; View</a>` : '';
+      return `<div style="font-size:12px;margin:2px 0">${esc(label)}${photoHtml}</div>`;
+    }).join('');
+  }
+  const npSlots = renderDcduSlots(r.np_dcdus);
+  const pSlots  = renderDcduSlots(r.p_dcdus);
+  const npConns = renderConns(r.np_dcdu_connections);
+  const pConns  = renderConns(r.p_dcdu_connections);
   return `
     <div class="detail-section">
       <div class="detail-section-title dcdb">&#x1F4CD; Site &amp; Survey</div>
@@ -876,9 +922,9 @@ function renderDcdbDetail(r) {
       <div class="detail-fields">
         ${f('Cable Size (mm²)',       r.np_cable_size_dcdb)}
         ${f('Breaker 1 / MCB',        r.np_breaker1_mcb)}
-        ${f('DCDU Config',           r.np_dcdus)}
+        ${npSlots ? `<div class="detail-field"><span class="detail-field-lbl">DCDU Slots</span><div class="detail-field-val">${npSlots}</div></div>` : ''}
         ${f('Section Photo',          r.np_section_photo ? '<a href="'+esc(r.np_section_photo)+'" target="_blank">View Photo</a>' : '—')}
-        ${f('Load Measurement',       r.np_load_measurement)}
+        ${f('Load Measurement (A)',    r.np_load_measurement)}
         ${f('Load Photo',             r.np_load_photo ? '<a href="'+esc(r.np_load_photo)+'" target="_blank">View Photo</a>' : '—')}
         ${f('Load Measured Time',     r.np_load_measured_time)}
         ${npConns ? `<div class="detail-field"><span class="detail-field-lbl">DCDU Connections</span><div class="detail-field-val">${npConns}</div></div>` : ''}
@@ -889,9 +935,9 @@ function renderDcdbDetail(r) {
       <div class="detail-fields">
         ${f('Cable Size (mm²)',       r.p_cable_size_dcdb)}
         ${f('Breaker 1 / MCB',        r.p_breaker1_mcb)}
-        ${f('DCDU Config',           r.p_dcdus)}
+        ${pSlots ? `<div class="detail-field"><span class="detail-field-lbl">DCDU Slots</span><div class="detail-field-val">${pSlots}</div></div>` : ''}
         ${f('Section Photo',          r.p_section_photo ? '<a href="'+esc(r.p_section_photo)+'" target="_blank">View Photo</a>' : '—')}
-        ${f('Load Measurement',       r.p_load_measurement)}
+        ${f('Load Measurement (A)',    r.p_load_measurement)}
         ${f('Load Photo',             r.p_load_photo ? '<a href="'+esc(r.p_load_photo)+'" target="_blank">View Photo</a>' : '—')}
         ${f('Load Measured Time',     r.p_load_measured_time)}
         ${pConns ? `<div class="detail-field"><span class="detail-field-lbl">DCDU Connections</span><div class="detail-field-val">${pConns}</div></div>` : ''}
@@ -932,12 +978,12 @@ function renderDcdbDetail(r) {
     <div class="detail-section">
       <div class="detail-section-title dcdb">&#x26A1; BTS Earthing</div>
       <div class="detail-fields">
-        ${f('BTS Earthing Total',               r.bts_earthing_total)}
-        ${f('Earthing Cable Count',             r.bts_earthing_cable_count)}
-        ${f('Earthing Cable Missing',           r.bts_earthing_cable_missing)}
+        ${f('BTS Earthing Total (m)',          r.bts_earthing_total)}
+        ${f('Earthing Cable Count',            r.bts_earthing_cable_count)}
+        ${f('Earthing Cable Missing',          r.bts_earthing_cable_missing)}
         ${f('Earthing Cable Length/Run (m)',   r.bts_earthing_cable_length_per_run)}
-        ${f('Earthing Connection',              r.bts_earthing_connection)}
-        ${f('BTS Earthing Total Missing',       r.bts_earthing_total_missing)}
+        ${f('Earthing Connection',             r.bts_earthing_connection)}
+        ${f('BTS Earthing Total Missing (m)',   r.bts_earthing_total_missing)}
       </div>
     </div>
     <div class="detail-section">
@@ -950,7 +996,21 @@ function renderDcdbDetail(r) {
 }
 
 // ── Tower Detail ─────────────────────────────────────────────────────────
-function renderTowerDetail(r) {
+function renderTowerDetail(r, towerPhotos = {}) {
+  // Enrich antenna/rrus with photos from the photos table (dynamic field names)
+  // towerPhotos is a map: fieldName -> { original, thumbnail, ... }
+  // e.g. towerPhotos["ant_<uuid>_model_plate"] -> { original: "/uploads/...", thumbnail: "/uploads/thumb_..." }
+  function getAntPhoto(antennaId, suffix) {
+    const key = `ant_${antennaId}_${suffix}`;
+    const entry = towerPhotos[key];
+    return entry ? entry.original || entry.serverUrl : null;
+  }
+  function getRruPhoto(rruId, suffix) {
+    const key = `rru_${rruId}_${suffix}`;
+    const entry = towerPhotos[key];
+    return entry ? entry.original || entry.serverUrl : null;
+  }
+
   let antennasHtml = '';
   let rrusHtml = '';
   try {
@@ -958,7 +1018,16 @@ function renderTowerDetail(r) {
     if (antennas.length > 0) {
       antennasHtml = `<div class="detail-section">
         <div class="detail-section-title tower">&#x1F4CE; Antennas (${antennas.length})</div>
-        ${antennas.map((a, i) => `
+        ${antennas.map((a, i) => {
+          // Use photo from photos table (dynamic field name), fallback to embedded field
+          const modelPlate = getAntPhoto(a.id, 'model_plate') || a.photo_model_plate;
+          const ports      = getAntPhoto(a.id, 'ports')      || a.photo_ports;
+          const dim1       = getAntPhoto(a.id, 'dim1')       || a.photo_dim1;
+          const dim2       = getAntPhoto(a.id, 'dim2')       || a.photo_dim2;
+          const dim3       = getAntPhoto(a.id, 'dim3')       || a.photo_dim3;
+          const azimuth    = getAntPhoto(a.id, 'azimuth')    || a.photo_azimuth;
+          const height     = getAntPhoto(a.id, 'height')      || a.photo_height;
+          return `
           <div style="margin-bottom:12px;padding:8px;background:rgba(59,130,246,0.06);border-radius:8px">
             <div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px">Antenna ${i+1}</div>
             <div class="detail-fields">
@@ -974,46 +1043,51 @@ function renderTowerDetail(r) {
               ${f('Height (mm)', a.height_mm)}
               ${f('Status', a.active_inactive)}
               ${f('Labelled', a.equipment_labelling)}
-              ${a.photo_model_plate ? `<div class="detail-field"><span class="detail-field-lbl">Model Plate Photo</span><span class="detail-field-val"><a href="${esc(a.photo_model_plate)}" target="_blank">View</a></span></div>` : ''}
-              ${a.photo_ports ? `<div class="detail-field"><span class="detail-field-lbl">Ports Photo</span><span class="detail-field-val"><a href="${esc(a.photo_ports)}" target="_blank">View</a></span></div>` : ''}
-              ${a.photo_dim1 ? `<div class="detail-field"><span class="detail-field-lbl">Dimension Photo 1</span><span class="detail-field-val"><a href="${esc(a.photo_dim1)}" target="_blank">View</a></span></div>` : ''}
-              ${a.photo_dim2 ? `<div class="detail-field"><span class="detail-field-lbl">Dimension Photo 2</span><span class="detail-field-val"><a href="${esc(a.photo_dim2)}" target="_blank">View</a></span></div>` : ''}
-              ${a.photo_dim3 ? `<div class="detail-field"><span class="detail-field-lbl">Dimension Photo 3</span><span class="detail-field-val"><a href="${esc(a.photo_dim3)}" target="_blank">View</a></span></div>` : ''}
-              ${a.photo_azimuth ? `<div class="detail-field"><span class="detail-field-lbl">Azimuth Photo</span><span class="detail-field-val"><a href="${esc(a.photo_azimuth)}" target="_blank">View</a></span></div>` : ''}
-              ${a.photo_height ? `<div class="detail-field"><span class="detail-field-lbl">Height Photo</span><span class="detail-field-val"><a href="${esc(a.photo_height)}" target="_blank">View</a></span></div>` : ''}
+              ${modelPlate ? `<div class="detail-field"><span class="detail-field-lbl">Model Plate Photo</span><span class="detail-field-val"><a href="${esc(modelPlate)}" target="_blank">View</a></span></div>` : ''}
+              ${ports ? `<div class="detail-field"><span class="detail-field-lbl">Ports Photo</span><span class="detail-field-val"><a href="${esc(ports)}" target="_blank">View</a></span></div>` : ''}
+              ${dim1 ? `<div class="detail-field"><span class="detail-field-lbl">Dimension Photo 1</span><span class="detail-field-val"><a href="${esc(dim1)}" target="_blank">View</a></span></div>` : ''}
+              ${dim2 ? `<div class="detail-field"><span class="detail-field-lbl">Dimension Photo 2</span><span class="detail-field-val"><a href="${esc(dim2)}" target="_blank">View</a></span></div>` : ''}
+              ${dim3 ? `<div class="detail-field"><span class="detail-field-lbl">Dimension Photo 3</span><span class="detail-field-val"><a href="${esc(dim3)}" target="_blank">View</a></span></div>` : ''}
+              ${azimuth ? `<div class="detail-field"><span class="detail-field-lbl">Azimuth Photo</span><span class="detail-field-val"><a href="${esc(azimuth)}" target="_blank">View</a></span></div>` : ''}
+              ${height ? `<div class="detail-field"><span class="detail-field-lbl">Height Photo</span><span class="detail-field-val"><a href="${esc(height)}" target="_blank">View</a></span></div>` : ''}
             </div>
           </div>
-        `).join('')}
+        `}).join('')}
       </div>`;
     }
   } catch(e) {}
 
   try {
-    const rrus = r._rrus_json ? JSON.parse(r._rrus_json) : (r.rrus || []);
-    if (rrus.length > 0) {
+    const rrusArr = r._rrus_json ? JSON.parse(r._rrus_json) : (r.rrus || []);
+    if (rrusArr.length > 0) {
       rrusHtml = `<div class="detail-section">
-        <div class="detail-section-title tower">&#x26A1; RRUs (${rrus.length})</div>
-        ${rrus.map((r, i) => `
+        <div class="detail-section-title tower">&#x26A1; RRUs (${rrusArr.length})</div>
+        ${rrusArr.map((rru, i) => {
+          const modelPlate = getRruPhoto(rru.id, 'model_plate') || rru.photo_model_plate;
+          const dim1       = getRruPhoto(rru.id, 'dim1')          || rru.photo_dim1;
+          const dim2       = getRruPhoto(rru.id, 'dim2')          || rru.photo_dim2;
+          const dim3       = getRruPhoto(rru.id, 'dim3')          || rru.photo_dim3;
+          return `
           <div style="margin-bottom:12px;padding:8px;background:rgba(139,92,246,0.06);border-radius:8px">
             <div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px">RRU ${i+1}</div>
             <div class="detail-fields">
-              ${f('Type', r.equipment_type)}
-              ${f('Manufacturer', r.manufacturer)}
-              ${f('Model', r.model_number)}
-              ${f('Tenant', r.tenant_owner)}
-              ${f('Sector', r.sector)}
-              ${f('Length/Dia (mm)', r.length_dia_mm)}
-              ${f('Width (mm)', r.width_mm)}
-              ${f('Height (mm)', r.height_mm)}
-              ${f('Status', r.active_inactive)}
-              ${f('Labelled', r.equipment_labelling)}
-              ${r.photo_model_plate ? `<div class="detail-field"><span class="detail-field-lbl">Model Plate Photo</span><span class="detail-field-val"><a href="${esc(r.photo_model_plate)}" target="_blank">View</a></span></div>` : ''}
-              ${r.photo_dim1 ? `<div class="detail-field"><span class="detail-field-lbl">Dimension Photo 1</span><span class="detail-field-val"><a href="${esc(r.photo_dim1)}" target="_blank">View</a></span></div>` : ''}
-              ${r.photo_dim2 ? `<div class="detail-field"><span class="detail-field-lbl">Dimension Photo 2</span><span class="detail-field-val"><a href="${esc(r.photo_dim2)}" target="_blank">View</a></span></div>` : ''}
-              ${r.photo_dim3 ? `<div class="detail-field"><span class="detail-field-lbl">Dimension Photo 3</span><span class="detail-field-val"><a href="${esc(r.photo_dim3)}" target="_blank">View</a></span></div>` : ''}
+              ${f('Type', rru.equipment_type)}
+              ${f('Manufacturer', rru.manufacturer)}
+              ${f('Model', rru.model_number)}
+              ${f('Tenant', rru.tenant_owner)}
+              ${f('Sector', rru.sector)}
+              ${f('Length/Dia (mm)', rru.length_dia_mm)}
+              ${f('Width (mm)', rru.width_mm)}
+              ${f('Height (mm)', rru.height_mm)}
+              ${f('Status', rru.active_inactive)}
+              ${f('Labelled', rru.equipment_labelling)}
+              ${modelPlate ? `<div class="detail-field"><span class="detail-field-lbl">Model Plate Photo</span><span class="detail-field-val"><a href="${esc(modelPlate)}" target="_blank">View</a></span></div>` : ''}
+              ${dim1 ? `<div class="detail-field"><span class="detail-field-lbl">Dimension Photo 1</span><span class="detail-field-val"><a href="${esc(dim1)}" target="_blank">View</a></span></div>` : ''}
+              ${dim2 ? `<div class="detail-field"><span class="detail-field-lbl">Dimension Photo 2</span><span class="detail-field-val"><a href="${esc(dim2)}" target="_blank">View</a></span></div>` : ''}
+              ${dim3 ? `<div class="detail-field"><span class="detail-field-lbl">Dimension Photo 3</span><span class="detail-field-val"><a href="${esc(dim3)}" target="_blank">View</a></span></div>` : ''}
             </div>
           </div>
-        `).join('')}
+        `}).join('')}
       </div>`;
     }
   } catch(e) {}
