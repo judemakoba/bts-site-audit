@@ -836,7 +836,10 @@ app.get('/api/audit/site/:siteId', authMiddleware, (req, res) => {
   const dcdbRecords    = db.dcdbRecords.filter(e => e.userId === (req.role === 'admin' ? e.userId : req.userId) && e.siteId === siteId);
   const towerEquipment  = db.towerEquipment.filter(e => e.userId === (req.role === 'admin' ? e.userId : req.userId) && e.siteId === siteId);
 
-  res.json({ siteId, siteInfo, groundEquipment, dcdbRecords, towerEquipment, site });
+  // Include all photos for this site (for the review/detail view)
+  const photos = db.photos.filter(p => p.siteId === siteId && (req.role === 'admin' || p.userId === req.userId));
+
+  res.json({ siteId, siteInfo, groundEquipment, dcdbRecords, towerEquipment, photos, site });
 });
 
 // ── Ground Equipment ──────────────────────────────────────────────────────────

@@ -756,24 +756,143 @@ async function viewRecord(type, id) {
   }
   if (!record) { toast('Record not found', 'error'); return; }
 
-  // Fetch photos from photos table for all record types (to resolve dynamic field names)
-  const recordPhotos = (type && record.id)
-    ? await fetchPhotosForRecord(record.siteId, record.id)
-    : {};
+  // Fetch ALL records + photos for this site so we can show ground + DCDB + tower together
+  let allSiteData = { groundEquipment: [], dcdbRecords: [], towerEquipment: [], photos: [], site: record.site };
+  try {
+    const res = await fetch(`${API}/audit/site/${encodeURIComponent(record.siteId)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      allSiteData = data;
+    }
+  } catch(e) {}
+
+  // Build photos map: recordId -> fieldName -> photo object
+  const allPhotosMap = {};
+  (allSiteData.photos || []).forEach(p => {
+    if (!p.recordId) return;
+    if (!allPhotosMap[p.recordId]) allPhotosMap[p.recordId] = {};
+    if (p.fieldName) allPhotosMap[p.recordId][p.fieldName] = p;
+  });
 
   currentRecord = { record, type };
   const modal = document.getElementById('record-detail-modal');
   document.getElementById('detail-title').textContent =
-    (type === 'ground' ? 'Ground Equipment' : type === 'dcdb' ? 'DCDB Record' : 'Tower Equipment') + ' — Detail';
+    `${esc(record.site?.siteName || record.siteId || 'Unknown')} — Full Audit Report`;
   document.getElementById('detail-meta').textContent =
-    `${esc(record.site?.siteName || record.siteId || 'Unknown')} | ${esc(record.siteId)} | ${esc(record.user?.name || 'Unknown')} | ${fmtDate(record.updatedAt || record.createdAt)}`;
-  document.getElementById('detail-body').innerHTML = renderRecordDetail(record, type, recordPhotos);
+    `Site: ${esc(record.siteId)} | Engineer: ${esc(record.user?.name || 'Unknown')}`;
+  document.getElementById('detail-body').innerHTML = renderFullAuditReport(allSiteData, allPhotosMap, record.userId);
   modal.classList.remove('hidden');
 }
 
 function closeRecordDetail() {
   document.getElementById('record-detail-modal').classList.add('hidden');
   currentRecord = null;
+}
+
+// ── Full Audit Report (all 3 forms on one page) ─────────────────────────
+function renderFullAuditReport(data, allPhotosMap, currentUserId) {
+  const { groundEquipment = [], dcdbRecords = [], towerEquipment = [], site } = data;
+
+  const sections = [];
+
+  // ── Ground Equipment ─────────────────────────────────────────────
+  if (groundEquipment.length > 0) {
+    sections.push(`<div class="detail-section">
+      <div class="detail-section-title ground">&#x1F4CD; Ground Equipment</div>
+      ${groundEquipment.map(r => {
+        const photos = allPhotosMap[r.id] || {};
+        const sitePhotos = buildGroundPhotos(r, photos);
+        return `
+          <div style="margin-bottom:16px">
+            <div class="detail-fields" style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">
+              Status: ${r.status === 'submitted' ? '&#x2705; Submitted' : r.status === 'draft' ? '&#x1F4CB; Draft' : '&#x274C; '+esc(r.status)} &nbsp;|&nbsp;
+              Updated: ${fmtDate(r.updatedAt || r.createdAt)}
+            </div>
+            ${renderGroundDetail(r, photos)}
+          </div>
+        `;
+      }).join('')}
+    </div>`);
+  } else {
+    sections.push(`<div class="detail-section">
+      <div class="detail-section-title ground">&#x1F4CD; Ground Equipment</div>
+      <div class="detail-fields"><p class="detail-no-photo">No ground equipment data submitted.</p></div>
+    </div>`);
+  }
+
+  // ── DCDB Records ────────────────────────────────────────────────
+  if (dcdbRecords.length > 0) {
+    sections.push(`<div class="detail-section">
+      <div class="detail-section-title dcdb">&#x26A1; DCDB Records</div>
+      ${dcdbRecords.map(r => {
+        const photos = allPhotosMap[r.id] || {};
+        return `
+          <div style="margin-bottom:16px">
+            <div class="detail-fields" style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">
+              Status: ${r.status === 'submitted' ? '&#x2705; Submitted' : r.status === 'draft' ? '&#x1F4CB; Draft' : '&#x274C; '+esc(r.status)} &nbsp;|&nbsp;
+              Updated: ${fmtDate(r.updatedAt || r.createdAt)}
+            </div>
+            ${renderDcdbDetail(r, photos)}
+          </div>
+        `;
+      }).join('')}
+    </div>`);
+  } else {
+    sections.push(`<div class="detail-section">
+      <div class="detail-section-title dcdb">&#x26A1; DCDB Records</div>
+      <div class="detail-fields"><p class="detail-no-photo">No DCDB data submitted.</p></div>
+    </div>`);
+  }
+
+  // ── Tower Equipment ───────────────────────────────────────────────
+  if (towerEquipment.length > 0) {
+    sections.push(`<div class="detail-section">
+      <div class="detail-section-title tower">&#x1F4CE; Tower Equipment</div>
+      ${towerEquipment.map(r => {
+        const photos = allPhotosMap[r.id] || {};
+        return `
+          <div style="margin-bottom:16px">
+            <div class="detail-fields" style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">
+              Status: ${r.status === 'submitted' ? '&#x2705; Submitted' : r.status === 'draft' ? '&#x1F4CB; Draft' : '&#x274C; '+esc(r.status)} &nbsp;|&nbsp;
+              Updated: ${fmtDate(r.updatedAt || r.createdAt)}
+            </div>
+            ${renderTowerDetail(r, photos)}
+          </div>
+        `;
+      }).join('')}
+    </div>`);
+  } else {
+    sections.push(`<div class="detail-section">
+      <div class="detail-section-title tower">&#x1F4CE; Tower Equipment</div>
+      <div class="detail-fields"><p class="detail-no-photo">No tower data submitted.</p></div>
+    </div>`);
+  }
+
+  return sections.join('\n');
+}
+
+// Helper: build ground photos list from record + photos map (inline for full report)
+function buildGroundPhotos(r, photos) {
+  const photoList = [];
+  // From record fields
+  const fields = ['site_name_plate_photo','gps_screenshot','site_photo','rru_photo',
+    'cabinet_photo','slab_photo','redundant_photo','non_active_idu_photo'];
+  const labels = {'site_name_plate_photo':'Site Name Plate','gps_screenshot':'GPS Screenshot',
+    'site_photo':'Site Photo','rru_photo':'RRU Photo','cabinet_photo':'Cabinet Photo',
+    'slab_photo':'Slab Photo','redundant_photo':'Redundant Photo','non_active_idu_photo':'Non-Active IDU'};
+  fields.forEach(f => {
+    if (r[f]) photoList.push({ label: labels[f] || f, path: r[f] });
+  });
+  // From photos map (recordPhotos)
+  Object.entries(photos).forEach(([fieldName, photo]) => {
+    if (photo && photo.original) {
+      const label = fieldName.replace(/_photo_?\d*/,' #').replace(/_/g,' ').trim();
+      photoList.push({ label: label || fieldName, path: photo.original });
+    }
+  });
+  return photoList;
 }
 
 function renderRecordDetail(r, type, recordPhotos = {}) {
