@@ -726,7 +726,7 @@ function renderDrafts() {
 // ── Record Detail Modal ──────────────────────────────────────────────────
 let currentRecord = null; // { record, type }
 
-// Fetch photos for a specific record (used for tower antenna/RRU photo rendering)
+// Fetch photos for a specific record (used for all audit type photo rendering)
 async function fetchPhotosForRecord(siteId, recordId) {
   try {
     const res = await fetch(`${API}/audit/photos?siteId=${encodeURIComponent(siteId)}&recordId=${encodeURIComponent(recordId)}`, {
@@ -756,11 +756,10 @@ async function viewRecord(type, id) {
   }
   if (!record) { toast('Record not found', 'error'); return; }
 
-  // For tower records, fetch photos from photos table to resolve dynamic field names
-  let towerPhotos = {};
-  if (type === 'tower' && record.id) {
-    towerPhotos = await fetchPhotosForRecord(record.siteId, record.id);
-  }
+  // Fetch photos from photos table for all record types (to resolve dynamic field names)
+  const recordPhotos = (type && record.id)
+    ? await fetchPhotosForRecord(record.siteId, record.id)
+    : {};
 
   currentRecord = { record, type };
   const modal = document.getElementById('record-detail-modal');
@@ -768,7 +767,7 @@ async function viewRecord(type, id) {
     (type === 'ground' ? 'Ground Equipment' : type === 'dcdb' ? 'DCDB Record' : 'Tower Equipment') + ' — Detail';
   document.getElementById('detail-meta').textContent =
     `${esc(record.site?.siteName || record.siteId || 'Unknown')} | ${esc(record.siteId)} | ${esc(record.user?.name || 'Unknown')} | ${fmtDate(record.updatedAt || record.createdAt)}`;
-  document.getElementById('detail-body').innerHTML = renderRecordDetail(record, type, towerPhotos);
+  document.getElementById('detail-body').innerHTML = renderRecordDetail(record, type, recordPhotos);
   modal.classList.remove('hidden');
 }
 
@@ -777,15 +776,15 @@ function closeRecordDetail() {
   currentRecord = null;
 }
 
-function renderRecordDetail(r, type, towerPhotos = {}) {
-  if (type === 'ground') return renderGroundDetail(r);
-  if (type === 'dcdb')  return renderDcdbDetail(r);
-  if (type === 'tower')  return renderTowerDetail(r, towerPhotos);
+function renderRecordDetail(r, type, recordPhotos = {}) {
+  if (type === 'ground') return renderGroundDetail(r, recordPhotos);
+  if (type === 'dcdb')  return renderDcdbDetail(r, recordPhotos);
+  if (type === 'tower')  return renderTowerDetail(r, recordPhotos);
   return '<p style="color:var(--text-secondary)">Unknown record type.</p>';
 }
 
 // ── Ground Equipment Detail ───────────────────────────────────────────────
-function renderGroundDetail(r) {
+function renderGroundDetail(r, recordPhotos = {}) {
   const s = r;
   return `
     <div class="detail-section">
@@ -866,12 +865,15 @@ function renderGroundDetail(r) {
       </div>
     </div>
 
-    ${renderPhotosSection(s)}
+    ${renderPhotosSection(s, recordPhotos)}
   `;
 }
 
 // ── DCDB Detail ─────────────────────────────────────────────────────────
-function renderDcdbDetail(r) {
+function renderDcdbDetail(r, recordPhotos = {}) {
+  // Helper: get photo from recordPhotos map or fallback to record field
+  const fp = (field) => recordPhotos[field]?.original || r[field] || null;
+
   // Parse DCDU slots: "Label:CableSizemm²:BreakerRatingA;..." → display each on its own line
   function renderDcduSlots(raw) {
     if (!raw) return '';
@@ -923,9 +925,9 @@ function renderDcdbDetail(r) {
         ${f('Cable Size (mm²)',       r.np_cable_size_dcdb)}
         ${f('Breaker 1 / MCB',        r.np_breaker1_mcb)}
         ${npSlots ? `<div class="detail-field"><span class="detail-field-lbl">DCDU Slots</span><div class="detail-field-val">${npSlots}</div></div>` : ''}
-        ${f('Section Photo',          r.np_section_photo ? '<a href="'+esc(r.np_section_photo)+'" target="_blank">View Photo</a>' : '—')}
+        ${f('Section Photo',          (() => { const p = fp('np_section_photo'); return p ? '<a href="'+esc(p)+'" target="_blank">View Photo</a>' : '—'; })()}
         ${f('Load Measurement (A)',    r.np_load_measurement)}
-        ${f('Load Photo',             r.np_load_photo ? '<a href="'+esc(r.np_load_photo)+'" target="_blank">View Photo</a>' : '—')}
+        ${f('Load Photo',             (() => { const p = fp('np_load_photo'); return p ? '<a href="'+esc(p)+'" target="_blank">View Photo</a>' : '—'; })()}
         ${f('Load Measured Time',     r.np_load_measured_time)}
         ${npConns ? `<div class="detail-field"><span class="detail-field-lbl">DCDU Connections</span><div class="detail-field-val">${npConns}</div></div>` : ''}
       </div>
@@ -936,9 +938,9 @@ function renderDcdbDetail(r) {
         ${f('Cable Size (mm²)',       r.p_cable_size_dcdb)}
         ${f('Breaker 1 / MCB',        r.p_breaker1_mcb)}
         ${pSlots ? `<div class="detail-field"><span class="detail-field-lbl">DCDU Slots</span><div class="detail-field-val">${pSlots}</div></div>` : ''}
-        ${f('Section Photo',          r.p_section_photo ? '<a href="'+esc(r.p_section_photo)+'" target="_blank">View Photo</a>' : '—')}
+        ${f('Section Photo',          (() => { const p = fp('p_section_photo'); return p ? '<a href="'+esc(p)+'" target="_blank">View Photo</a>' : '—'; })()}
         ${f('Load Measurement (A)',    r.p_load_measurement)}
-        ${f('Load Photo',             r.p_load_photo ? '<a href="'+esc(r.p_load_photo)+'" target="_blank">View Photo</a>' : '—')}
+        ${f('Load Photo',             (() => { const p = fp('p_load_photo'); return p ? '<a href="'+esc(p)+'" target="_blank">View Photo</a>' : '—'; })()}
         ${f('Load Measured Time',     r.p_load_measured_time)}
         ${pConns ? `<div class="detail-field"><span class="detail-field-lbl">DCDU Connections</span><div class="detail-field-val">${pConns}</div></div>` : ''}
       </div>
@@ -996,18 +998,18 @@ function renderDcdbDetail(r) {
 }
 
 // ── Tower Detail ─────────────────────────────────────────────────────────
-function renderTowerDetail(r, towerPhotos = {}) {
+function renderTowerDetail(r, recordPhotos = {}) {
   // Enrich antenna/rrus with photos from the photos table (dynamic field names)
-  // towerPhotos is a map: fieldName -> { original, thumbnail, ... }
-  // e.g. towerPhotos["ant_<uuid>_model_plate"] -> { original: "/uploads/...", thumbnail: "/uploads/thumb_..." }
+  // recordPhotos is a map: fieldName -> { original, thumbnail, ... }
+  // e.g. recordPhotos["ant_<uuid>_model_plate"] -> { original: "/uploads/...", thumbnail: "/uploads/thumb_..." }
   function getAntPhoto(antennaId, suffix) {
     const key = `ant_${antennaId}_${suffix}`;
-    const entry = towerPhotos[key];
+    const entry = recordPhotos[key];
     return entry ? entry.original || entry.serverUrl : null;
   }
   function getRruPhoto(rruId, suffix) {
     const key = `rru_${rruId}_${suffix}`;
-    const entry = towerPhotos[key];
+    const entry = recordPhotos[key];
     return entry ? entry.original || entry.serverUrl : null;
   }
 
@@ -1118,14 +1120,16 @@ function renderTowerDetail(r, towerPhotos = {}) {
     </div>
     ${antennasHtml}
     ${rrusHtml}
+    ${renderPhotosSection(r, recordPhotos)}
   `;
 }
 
 // ── Photos Section ───────────────────────────────────────────────────────
-function renderPhotosSection(r) {
+function renderPhotosSection(r, recordPhotos = {}) {
   const photos = [];
-  const pushPhoto = (label, path) => { if (path) photos.push({ label, path }); };
-  const pushList  = (label, list) => { if (list) list.split('|').filter(Boolean).forEach(p => photos.push({ label, path: p })); };
+  const seenUrls = new Set();
+  const pushPhoto = (label, path) => { if (path && !seenUrls.has(path)) { seenUrls.add(path); photos.push({ label, path }); } };
+  const pushList  = (label, list) => { if (list) list.split('|').filter(Boolean).forEach(p => pushPhoto(label, p)); };
 
   pushPhoto('Site Name Plate',     r.site_name_plate_photo);
   pushPhoto('GPS Screenshot',       r.gps_screenshot);
@@ -1148,6 +1152,19 @@ function renderPhotosSection(r) {
   // Also pick up indexed fields like cabinet_dim_photo_0, cabinet_dim_photo_1
   Object.keys(r).filter(k => k.startsWith('cabinet_dim_photo_') && typeof r[k] === 'string' && r[k])
     .forEach(k => photos.push({ label: `Cabinet Dim #${parseInt(k.split('_').pop()) + 1}`, path: r[k] }));
+
+  // Also include photos from the photos table (recordPhotos map: fieldName -> photo object)
+  Object.entries(recordPhotos).forEach(([fieldName, photo]) => {
+    if (!photo || !photo.original) return;
+    // Determine label from fieldName
+    let label = fieldName.replace(/_photo(_?\d*)$/, ' #$1').replace(/_/g, ' ');
+    if (fieldName.startsWith('cabinet_photo'))  label = `Cabinet #${parseInt(fieldName.split('_').pop()) + 1}`;
+    if (fieldName.startsWith('slab_photo'))     label = `Slab #${parseInt(fieldName.split('_').pop()) + 1}`;
+    if (fieldName.startsWith('site_photo'))      label = 'Site Photo';
+    if (fieldName === 'site_name_plate_photo')  label = 'Site Name Plate';
+    if (fieldName === 'gps_screenshot')         label = 'GPS Screenshot';
+    pushPhoto(label, photo.original);
+  });
 
   if (!photos.length) {
     return `<div class="detail-section">
